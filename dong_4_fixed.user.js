@@ -27,7 +27,7 @@
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   let orderConfirmed = false;
   let retryCount = 0;
-  let ticketFound = false;  // ← 新增：標記是否發現可用票
+  let ticketFound = true;  // ← 初始為 true：第一次全速搶購
 
   // ===== [新增] 延遲策略 - 檢查票時慢速，發現票後全速 =====
   const randomDelay = (min, max) => sleep(Math.floor(Math.random() * (max - min + 1)) + min);
@@ -335,8 +335,7 @@
       }
 
       pollCount = 0;
-      ticketFound = true;  // ← 發現可用票！立即切換全速模式
-      notify(`🎉 發現可用票！切換全速模式 | 順位 ${targetTier.rank}: ${targetTier.price} 元...`, '#0a7d32');
+      notify(`選定順位 ${targetTier.rank}: ${targetTier.price} 元...`, '#0a7d32');
 
       const hasSelectedBadge = /active|selected|checked/i.test(targetTier.el.className);
       const isZero = document.body.textContent.includes('HK$ 0.00');
@@ -437,7 +436,11 @@
     const modal = document.querySelector('[role="dialog"], .van-dialog, .van-popup');
     if (!modal) return false;
     const text = modal.textContent || '';
-    return text.includes('庫存不足') || text.includes('所選票品目前庫存不足');
+    const outOfStock = text.includes('庫存不足') || text.includes('所選票品目前庫存不足');
+    if (outOfStock) {
+      ticketFound = false;  // ← 庫存不足秒退 → 切換為慢速輪詢模式
+    }
+    return outOfStock;
   };
 
   // ===== 階段 4：結帳頁面（核心：庫存不足秒退重載） =====
@@ -531,7 +534,7 @@
 
   // ===== 主排程狀態機 =====
   async function mainLoop() {
-    notify('⏳ 慢速檢查票 → 🎉 發現票立即全速搶票', '#1976d2');
+    notify('🚀 第一次全速搶購 | 如被秒退則轉為慢速輪詢', '#1976d2');
     await sleep(1000);
 
     while (!orderConfirmed) {
