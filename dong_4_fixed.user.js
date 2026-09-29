@@ -28,6 +28,10 @@
   let orderConfirmed = false;
   let retryCount = 0;
 
+  // ===== [新增] 隨機延遲函數 - 避免被判定為機器人 =====
+  const randomDelay = (min, max) => sleep(Math.floor(Math.random() * (max - min + 1)) + min);
+  const humanLikeDelay = () => randomDelay(800, 2000);
+
   // ===== [修復] 穿透式原生點擊 =====
   function robustClick(el) {
     if (!el || orderConfirmed) return false;
@@ -197,7 +201,7 @@
 
       if (btn) {
         robustClick(btn);
-        await sleep(Math.floor(Math.random() * 201) + 1000);
+        await randomDelay(1200, 2500);
         return true;
       }
     }
@@ -208,10 +212,10 @@
   async function step0_StartPage() {
     notify('確認條款/進入節目首頁', '#1976d2');
     const okBtn = findBtn('知悉並同意') || findBtn('同意') || findBtn('確認');
-    if (okBtn) { robustClick(okBtn); await sleep(100); }
+    if (okBtn) { robustClick(okBtn); await randomDelay(400, 800); }
 
     const buyBtn = findBtn('立即購票') || findBtn('立即購買') || findBtn('顯示價格');
-    if (buyBtn) { robustClick(buyBtn); await sleep(150); }
+    if (buyBtn) { robustClick(buyBtn); await randomDelay(600, 1200); }
   }
 
   // ===== 階段 1：購票碼 =====
@@ -221,21 +225,22 @@
                   document.querySelector('.van-dialog input, [role="dialog"] input, input[type="text"], input[type="tel"]');
 
     if (input && input.getBoundingClientRect().width > 0) {
+      await randomDelay(300, 600);
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
       setter.call(input, CONFIG.PRIVILEGE_CODE);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      await sleep(100);
+      await randomDelay(400, 800);
 
       const confirmBtn = findBtn('確定') || findBtn('確認');
-      if (confirmBtn) { robustClick(confirmBtn); await sleep(300); }
+      if (confirmBtn) { robustClick(confirmBtn); await randomDelay(800, 1500); }
     }
   }
 
   // ===== 階段 2：排隊 =====
   async function step2_Queueing() {
     notify('排隊中，靜默保持連線...', '#e68a00');
-    await sleep(400);
+    await randomDelay(1000, 3000);
   }
 
   // ===== [修復] 使用 Map 替代 WeakMap =====
@@ -299,18 +304,18 @@
         pollCount++;
         if (distinctSessions.length > 1) {
           notify(`多場次輪詢回流票 (${pollCount})...`, '#e68a00');
-          const delay = pollCount === 1 ? 100 : Math.floor(Math.random() * 301) + 700;
+          const delay = pollCount === 1 ? randomDelay(500, 800) : randomDelay(1200, 2000);
           const nextIdx = pollCount % distinctSessions.length;
           robustClick(distinctSessions[nextIdx]);
-          await sleep(delay);
+          await delay;
         } else {
           if (pollCount === 1 && distinctSessions.length === 1) {
             notify('單場次點擊重整 (1/2)...', '#e68a00');
             robustClick(distinctSessions[0]);
-            await sleep(500);
+            await randomDelay(1000, 1800);
           } else {
             notify('🔄 單場次無足額，正在刷新網頁 (Reload)...', '#d32f2f');
-            await sleep(400);
+            await randomDelay(800, 1200);
             if (!isUnderCheckoutProtection()) {
               window.location.reload();
             }
@@ -329,7 +334,8 @@
         robustClick(targetTier.el);
       }
 
-      await waitFor(() => document.querySelector('[class*="buyNum"], [class*="stepper"], .van-stepper'), 500, 30);
+      await randomDelay(600, 1000);
+      await waitFor(() => document.querySelector('[class*="buyNum"], [class*="stepper"], .van-stepper'), 800, 50);
       if (isUnderCheckoutProtection()) return;
 
       const stepper = document.querySelector('[class*="buyNum"], [class*="stepper"], .van-stepper');
@@ -366,7 +372,7 @@
 
           if (plusBtn) robustClick(plusBtn);
           pressAttempts++;
-          await sleep(120);
+          await randomDelay(400, 700);
         }
 
         const finalQty = getCurrQty();
@@ -390,7 +396,7 @@
           const nextBtn = getNextBtn();
           if (nextBtn) robustClick(nextBtn);
 
-          await sleep(250);
+          await randomDelay(600, 1200);
 
           if (isUnderCheckoutProtection()) {
             return;
@@ -439,7 +445,7 @@
       } else if (window.history.length > 1) {
         window.history.back();
       }
-      await sleep(200);
+      await randomDelay(800, 1500);
       return;
     }
 
@@ -467,10 +473,10 @@
         robustClick(parent);
         break;
       }
-      await sleep(35);
+      await randomDelay(200, 500);
     }
 
-    await sleep(60);
+    await randomDelay(400, 800);
 
     while (!orderConfirmed) {
       if (checkOutOfStock()) {
@@ -482,7 +488,7 @@
         );
         if (retBtn) robustClick(retBtn);
         else if (window.history.length > 1) window.history.back();
-        await sleep(200);
+        await randomDelay(800, 1500);
         return;
       }
 
@@ -509,7 +515,7 @@
       );
       if (okBtn && okBtn.getBoundingClientRect().width > 0) robustClick(okBtn);
 
-      await sleep(150);
+      await randomDelay(600, 1200);
     }
   }
 
@@ -542,10 +548,10 @@
         }
       } catch (err) {
         console.error('[HK Ticketing Helper] Error:', err);
-        await sleep(100);
+        await randomDelay(300, 600);
       }
 
-      await sleep(60);
+      await randomDelay(200, 400);
     }
   }
 
