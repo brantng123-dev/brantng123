@@ -21,16 +21,26 @@
     ALLOW_RV: true,
     PREFER_MAX: true,
     MAX_RETRIES: 3,
-    TIMEOUT_MS: 3000
+    TIMEOUT_MS: 3000,
+    MODE: 'FAST',            // 'FAST' = 第一次搶票時快速 / 'SAFE' = 加隨機延遲避免被禁
   };
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   let orderConfirmed = false;
   let retryCount = 0;
 
-  // ===== [新增] 隨機延遲函數 - 避免被判定為機器人 =====
+  // ===== [新增] 延遲策略 - FAST 模式優先速度，SAFE 模式避免被禁 =====
   const randomDelay = (min, max) => sleep(Math.floor(Math.random() * (max - min + 1)) + min);
   const humanLikeDelay = () => randomDelay(800, 2000);
+
+  // 根據模式選擇延遲時間
+  const smartDelay = (fastMs, safeMin, safeMax) => {
+    if (CONFIG.MODE === 'FAST') {
+      return sleep(fastMs);  // 第一次快速模式：直接使用最小延遲
+    } else {
+      return randomDelay(safeMin, safeMax);  // 安全模式：隨機延遲
+    }
+  };
 
   // ===== [修復] 穿透式原生點擊 =====
   function robustClick(el) {
@@ -201,7 +211,7 @@
 
       if (btn) {
         robustClick(btn);
-        await randomDelay(1200, 2500);
+        await smartDelay(800, 1200, 2500);
         return true;
       }
     }
@@ -212,10 +222,10 @@
   async function step0_StartPage() {
     notify('確認條款/進入節目首頁', '#1976d2');
     const okBtn = findBtn('知悉並同意') || findBtn('同意') || findBtn('確認');
-    if (okBtn) { robustClick(okBtn); await randomDelay(400, 800); }
+    if (okBtn) { robustClick(okBtn); await smartDelay(50, 400, 800); }
 
     const buyBtn = findBtn('立即購票') || findBtn('立即購買') || findBtn('顯示價格');
-    if (buyBtn) { robustClick(buyBtn); await randomDelay(600, 1200); }
+    if (buyBtn) { robustClick(buyBtn); await smartDelay(80, 600, 1200); }
   }
 
   // ===== 階段 1：購票碼 =====
@@ -225,22 +235,22 @@
                   document.querySelector('.van-dialog input, [role="dialog"] input, input[type="text"], input[type="tel"]');
 
     if (input && input.getBoundingClientRect().width > 0) {
-      await randomDelay(300, 600);
+      await smartDelay(100, 300, 600);
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
       setter.call(input, CONFIG.PRIVILEGE_CODE);
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
-      await randomDelay(400, 800);
+      await smartDelay(100, 400, 800);
 
       const confirmBtn = findBtn('確定') || findBtn('確認');
-      if (confirmBtn) { robustClick(confirmBtn); await randomDelay(800, 1500); }
+      if (confirmBtn) { robustClick(confirmBtn); await smartDelay(300, 800, 1500); }
     }
   }
 
   // ===== 階段 2：排隊 =====
   async function step2_Queueing() {
     notify('排隊中，靜默保持連線...', '#e68a00');
-    await randomDelay(1000, 3000);
+    await smartDelay(300, 1000, 3000);
   }
 
   // ===== [修復] 使用 Map 替代 WeakMap =====
@@ -304,18 +314,17 @@
         pollCount++;
         if (distinctSessions.length > 1) {
           notify(`多場次輪詢回流票 (${pollCount})...`, '#e68a00');
-          const delay = pollCount === 1 ? randomDelay(500, 800) : randomDelay(1200, 2000);
           const nextIdx = pollCount % distinctSessions.length;
           robustClick(distinctSessions[nextIdx]);
-          await delay;
+          await smartDelay(pollCount === 1 ? 300 : 700, 500, 2000);
         } else {
           if (pollCount === 1 && distinctSessions.length === 1) {
             notify('單場次點擊重整 (1/2)...', '#e68a00');
             robustClick(distinctSessions[0]);
-            await randomDelay(1000, 1800);
+            await smartDelay(500, 1000, 1800);
           } else {
             notify('🔄 單場次無足額，正在刷新網頁 (Reload)...', '#d32f2f');
-            await randomDelay(800, 1200);
+            await smartDelay(300, 800, 1200);
             if (!isUnderCheckoutProtection()) {
               window.location.reload();
             }
@@ -334,8 +343,8 @@
         robustClick(targetTier.el);
       }
 
-      await randomDelay(600, 1000);
-      await waitFor(() => document.querySelector('[class*="buyNum"], [class*="stepper"], .van-stepper'), 800, 50);
+      await smartDelay(200, 600, 1000);
+      await waitFor(() => document.querySelector('[class*="buyNum"], [class*="stepper"], .van-stepper'), 600, 30);
       if (isUnderCheckoutProtection()) return;
 
       const stepper = document.querySelector('[class*="buyNum"], [class*="stepper"], .van-stepper');
@@ -372,7 +381,7 @@
 
           if (plusBtn) robustClick(plusBtn);
           pressAttempts++;
-          await randomDelay(400, 700);
+          await smartDelay(80, 400, 700);
         }
 
         const finalQty = getCurrQty();
@@ -396,7 +405,7 @@
           const nextBtn = getNextBtn();
           if (nextBtn) robustClick(nextBtn);
 
-          await randomDelay(600, 1200);
+          await smartDelay(200, 600, 1200);
 
           if (isUnderCheckoutProtection()) {
             return;
@@ -445,7 +454,7 @@
       } else if (window.history.length > 1) {
         window.history.back();
       }
-      await randomDelay(800, 1500);
+      await smartDelay(300, 800, 1500);
       return;
     }
 
@@ -473,10 +482,10 @@
         robustClick(parent);
         break;
       }
-      await randomDelay(200, 500);
+      await smartDelay(20, 200, 500);
     }
 
-    await randomDelay(400, 800);
+    await smartDelay(100, 400, 800);
 
     while (!orderConfirmed) {
       if (checkOutOfStock()) {
@@ -488,7 +497,7 @@
         );
         if (retBtn) robustClick(retBtn);
         else if (window.history.length > 1) window.history.back();
-        await randomDelay(800, 1500);
+        await smartDelay(300, 800, 1500);
         return;
       }
 
@@ -515,12 +524,18 @@
       );
       if (okBtn && okBtn.getBoundingClientRect().width > 0) robustClick(okBtn);
 
-      await randomDelay(600, 1200);
+      await smartDelay(100, 600, 1200);
     }
   }
 
   // ===== 主排程狀態機 =====
   async function mainLoop() {
+    const modeMsg = CONFIG.MODE === 'FAST'
+      ? '⚡ 快速模式 (FAST) - 優先搶票速度，可能被限流'
+      : '🛡️ 安全模式 (SAFE) - 隨機延遲，避免被禁';
+    notify(modeMsg, '#1976d2');
+    await sleep(1000);
+
     while (!orderConfirmed) {
       try {
         const handled = await handleBusyOrError();
@@ -548,10 +563,10 @@
         }
       } catch (err) {
         console.error('[HK Ticketing Helper] Error:', err);
-        await randomDelay(300, 600);
+        await smartDelay(100, 300, 600);
       }
 
-      await randomDelay(200, 400);
+      await smartDelay(30, 200, 400);
     }
   }
 
