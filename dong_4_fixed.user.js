@@ -21,24 +21,24 @@
     ALLOW_RV: true,
     PREFER_MAX: true,
     MAX_RETRIES: 3,
-    TIMEOUT_MS: 3000,
-    MODE: 'FAST',            // 'FAST' = 第一次搶票時快速 / 'SAFE' = 加隨機延遲避免被禁
+    TIMEOUT_MS: 3000
   };
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   let orderConfirmed = false;
   let retryCount = 0;
+  let ticketFound = false;  // ← 新增：標記是否發現可用票
 
-  // ===== [新增] 延遲策略 - FAST 模式優先速度，SAFE 模式避免被禁 =====
+  // ===== [新增] 延遲策略 - 檢查票時慢速，發現票後全速 =====
   const randomDelay = (min, max) => sleep(Math.floor(Math.random() * (max - min + 1)) + min);
   const humanLikeDelay = () => randomDelay(800, 2000);
 
-  // 根據模式選擇延遲時間
-  const smartDelay = (fastMs, safeMin, safeMax) => {
-    if (CONFIG.MODE === 'FAST') {
-      return sleep(fastMs);  // 第一次快速模式：直接使用最小延遲
+  // 智慧延遲：檢查票時慢速，發現票後全速
+  const smartDelay = (fastMs, slowMin, slowMax) => {
+    if (ticketFound) {
+      return sleep(fastMs);  // ✅ 發現票 → 全速執行
     } else {
-      return randomDelay(safeMin, safeMax);  // 安全模式：隨機延遲
+      return randomDelay(slowMin, slowMax);  // ⏳ 檢查票 → 慢速輪詢
     }
   };
 
@@ -335,7 +335,8 @@
       }
 
       pollCount = 0;
-      notify(`選定順位 ${targetTier.rank}: ${targetTier.price} 元...`, '#0a7d32');
+      ticketFound = true;  // ← 發現可用票！立即切換全速模式
+      notify(`🎉 發現可用票！切換全速模式 | 順位 ${targetTier.rank}: ${targetTier.price} 元...`, '#0a7d32');
 
       const hasSelectedBadge = /active|selected|checked/i.test(targetTier.el.className);
       const isZero = document.body.textContent.includes('HK$ 0.00');
@@ -530,10 +531,7 @@
 
   // ===== 主排程狀態機 =====
   async function mainLoop() {
-    const modeMsg = CONFIG.MODE === 'FAST'
-      ? '⚡ 快速模式 (FAST) - 優先搶票速度，可能被限流'
-      : '🛡️ 安全模式 (SAFE) - 隨機延遲，避免被禁';
-    notify(modeMsg, '#1976d2');
+    notify('⏳ 慢速檢查票 → 🎉 發現票立即全速搶票', '#1976d2');
     await sleep(1000);
 
     while (!orderConfirmed) {
