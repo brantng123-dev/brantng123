@@ -499,7 +499,11 @@ def add_product_to_bag(session: requests.Session, p_code: str, atbtoken: str) ->
         resp = session.get(TARGET_PRODUCT_URL, params=params, headers=req_headers, allow_redirects=False, timeout=10)
         log_cookie_diff("步驟 1.1: 303 直通加車 (GET)", before, session)
 
+        print(f"   📊 HTTP 狀態碼: {resp.status_code}")
         location = resp.headers.get("Location", "")
+        print(f"   📍 Location Header: {location[:100] if location else '(無)'}")
+        print(f"   📝 响應長度: {len(resp.text)} 字符")
+
         if resp.status_code in (301, 302, 303, 307) and ("step=attach" in location or "/shop/bag" in location):
             print("🎉 成功加入購物袋！")
             before_bag = get_cookie_snapshot(session)
@@ -509,6 +513,10 @@ def add_product_to_bag(session: requests.Session, p_code: str, atbtoken: str) ->
             checkout_url = trigger_checkout_now(session, bag_resp.text)
             checkout_host, stk_token, actk_token = extract_tokens_from_checkout_page(session, checkout_url)
             return True, checkout_url, stk_token, actk_token
+        elif resp.status_code == 200:
+            print(f"   ⚠️ 獲得 200 回應，可能需要 POST 而非 GET")
+        else:
+            print(f"   ❌ 非預期的狀態碼: {resp.status_code}")
 
         return False, "", "", ""
     except Exception as e:
