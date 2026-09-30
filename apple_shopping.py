@@ -504,6 +504,20 @@ def add_product_to_bag(session: requests.Session, p_code: str, atbtoken: str) ->
         print(f"   📍 Location Header: {location[:100] if location else '(無)'}")
         print(f"   📝 响應長度: {len(resp.text)} 字符")
 
+        # 保存完整日誌
+        with open("debug_response.log", "w", encoding="utf-8") as f:
+            f.write("=== HTTP 響應頭 ===\n")
+            for k, v in resp.headers.items():
+                f.write(f"{k}: {v}\n")
+            f.write("\n=== 響應內容 (前 3000 字) ===\n")
+            f.write(resp.text[:3000])
+        print(f"   💾 完整日誌已保存到: debug_response.log")
+
+        print(f"\n   📋 響應頭預覽:")
+        for k in ["content-type", "server", "x-frame-options", "cache-control"]:
+            if k in resp.headers:
+                print(f"      {k}: {resp.headers[k][:80]}")
+
         if resp.status_code in (301, 302, 303, 307) and ("step=attach" in location or "/shop/bag" in location):
             print("🎉 成功加入購物袋！")
             before_bag = get_cookie_snapshot(session)
@@ -517,6 +531,7 @@ def add_product_to_bag(session: requests.Session, p_code: str, atbtoken: str) ->
             print(f"   ⚠️ 獲得 200 回應，可能需要 POST 而非 GET")
         else:
             print(f"   ❌ 非預期的狀態碼: {resp.status_code}")
+            print(f"   💡 詳細日誌已保存到同目錄: debug_response.log")
 
         return False, "", "", ""
     except Exception as e:
