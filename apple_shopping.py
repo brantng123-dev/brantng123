@@ -75,7 +75,7 @@ BAG_URL = "https://www.apple.com/hk-zh/shop/bag"
 BAG_ACTION_URL = "https://www.apple.com/hk-zh/shop/bagx"
 CHECKOUT_NOW_URL = "https://www.apple.com/hk-zh/shop/bagx/checkout_now"
 CHECKOUT_DEFAULT_HOST = "secure9.store.apple.com"
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0"
 
 
 class AppleKeyManager:
