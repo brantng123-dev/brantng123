@@ -25,6 +25,9 @@ except ImportError:
 BARK_DEVICE_KEY = os.getenv("BARK_DEVICE_KEY", "WbfPe5p4KS4FcCCscyJn66")
 DEBUG_MODE = False
 
+# 日誌文件路徑
+DEBUG_LOG_FILE = os.path.join(os.getcwd(), "debug_response.log")
+
 PRODUCTS = {
     "MYEX3ZA/A": "iPhone 16 粉紅色",
 }
@@ -505,13 +508,17 @@ def add_product_to_bag(session: requests.Session, p_code: str, atbtoken: str) ->
         print(f"   📝 响應長度: {len(resp.text)} 字符")
 
         # 保存完整日誌
-        with open("debug_response.log", "w", encoding="utf-8") as f:
-            f.write("=== HTTP 響應頭 ===\n")
-            for k, v in resp.headers.items():
-                f.write(f"{k}: {v}\n")
-            f.write("\n=== 響應內容 (前 3000 字) ===\n")
-            f.write(resp.text[:3000])
-        print(f"   💾 完整日誌已保存到: debug_response.log")
+        try:
+            with open(DEBUG_LOG_FILE, "w", encoding="utf-8") as f:
+                f.write("=== HTTP 響應頭 ===\n")
+                for k, v in resp.headers.items():
+                    f.write(f"{k}: {v}\n")
+                f.write("\n=== 響應內容 (前 3000 字) ===\n")
+                f.write(resp.text[:3000])
+            print(f"   💾 完整日誌已保存到:")
+            print(f"      {DEBUG_LOG_FILE}")
+        except Exception as e:
+            print(f"   ⚠️ 無法保存日誌: {e}")
 
         print(f"\n   📋 響應頭預覽:")
         for k in ["content-type", "server", "x-frame-options", "cache-control"]:
@@ -878,6 +885,7 @@ def main():
     print("=" * 60)
     print("🍎 Apple 香港官方店 自動購物流程")
     print("=" * 60)
+    print(f"📝 日誌文件位置: {DEBUG_LOG_FILE}\n")
 
     cookie_dict, atbtoken = get_firefox_cookies_and_token()
 
