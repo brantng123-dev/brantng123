@@ -200,7 +200,7 @@ const BLANK = {
   title:'新項目',
   grids:[{name:'主',xLabels:'1,2,3',xSp:'8,8',yLabels:'A,B,C',ySp:'8,8',ox:0,oy:0,s1:'',s2:'',cols:true}],
   levels:[{name:'G/F',h:4.5,head:3.5,svc:0.3,free:false,use:''},{name:'1/F',h:4,head:3,svc:0.3,free:false,use:''},{name:'R/F',h:'',head:'',svc:'',free:false,use:''}],
-  zones:[], walls:[], columns:[], specials:[], site:clone(BASE_SITE),
+  zones:[], walls:[], columns:[], removed:[], specials:[], site:clone(BASE_SITE),
   rules:{minSpacing:0, wallsBanned:false, autoStop:true}, params:{...DEFAULT_PARAMS}, pick:{s1:'',s2:''}, runs:[]
 };
 function normalize(d){
@@ -208,7 +208,7 @@ function normalize(d){
   if (d.grid&&!d.grids) s.grids=[{name:'主',...d.grid,ox:0,oy:0,s1:'',s2:'',cols:true}];
   delete s.grid;
   s.params={...DEFAULT_PARAMS,...(d.params||{})};
-  ['zones','walls','columns','specials','runs','grids'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+  ['zones','walls','columns','removed','specials','runs','grids'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
   s.site={...BASE_SITE,...(d.site||{})}; if(!Array.isArray(s.site.soils)) s.site.soils=[];
   s.rules={...BLANK.rules,...(d.rules||{})};
   s.pick=s.pick||{s1:'',s2:''};
@@ -284,7 +284,7 @@ function buildModel(S){
     const nm=z.name||ZONE_ZH[z.type]||'限制區';
     if ([x1,x2,y1,y2].some(v=>v===null)){err.push(`限制區「${nm}」：軸線位置讀唔到（例：3、B、3+5、T:T2、@12.5）`);return;}
     const r=range(z.s1,z.s2,`限制區「${nm}」`); if(!r) return;
-    zones.push({type:z.type,name:nm,x1:Math.min(x1,x2),x2:Math.max(x1,x2),y1:Math.min(y1,y2),y2:Math.max(y1,y2),s1:r[0],s2:r[1],head:num(z.head),svc:num(z.svc)});
+    zones.push({src:zi,type:z.type,name:nm,x1:Math.min(x1,x2),x2:Math.max(x1,x2),y1:Math.min(y1,y2),y2:Math.max(y1,y2),s1:r[0],s2:r[1],head:num(z.head),svc:num(z.svc)});
   });
   // 牆
   const walls=[];
@@ -294,19 +294,24 @@ function buildModel(S){
     if ([x1,y1,x2,y2].some(v=>v===null)){err.push(`牆「${nm}」：位置讀唔到`);return;}
     const r=range(w.s1,w.s2,`牆「${nm}」`); if(!r) return;
     const n=Math.max(1,Math.round(num(w.n)||1)), dx=num(w.dx)||0, dy=num(w.dy)||0;
-    for (let i=0;i<n;i++) walls.push({name:n>1?`${nm} #${i+1}`:nm,x1:x1+i*dx,y1:y1+i*dy,x2:x2+i*dx,y2:y2+i*dy,s1:r[0],s2:r[1]});
+    for (let i=0;i<n;i++) walls.push({src:wi,inst:i,rowN:n,name:n>1?`${nm} #${i+1}`:nm,x1:x1+i*dx,y1:y1+i*dy,x2:x2+i*dx,y2:y2+i*dy,s1:r[0],s2:r[1]});
   });
   // 柱點
-  const pts=[], pmap=new Map();
+  const pts=[], pmap=new Map(), extraCols=[];
   const pkey=(x,y)=>`${Math.round(x*20)}|${Math.round(y*20)}`;
   const addPt=(x,y,s1,s2)=>{ const k=pkey(x,y); let p=pmap.get(k); if(!p){p={id:pts.length,x,y,key:k,label:ptLabel(x,y),ranges:[]};pts.push(p);pmap.set(k,p);} p.ranges.push([s1,s2]); };
   grids.forEach(g=>{ if(!g.cols) return; g.gx.pos.forEach(x=>g.gy.pos.forEach(y=>addPt(x,y,g.s1,g.s2))); });
   (S.columns||[]).forEach((c,ci)=>{
     const x=coord(c.x,'x'),y=coord(c.y,'y'); if(x===null||y===null){ if(c.x||c.y) err.push(`額外柱「${c.name||ci+1}」：位置讀唔到`); return; }
-    const r=range(c.s1,c.s2,`額外柱「${c.name||ci+1}」`); if(r) addPt(x,y,r[0],r[1]);
+    const r=range(c.s1,c.s2,`額外柱「${c.name||ci+1}」`); if(r){ addPt(x,y,r[0],r[1]); extraCols.push({src:ci,x,y,s1:r[0],s2:r[1]}); }
+  });
+  const removed=[];
+  (S.removed||[]).forEach((c,ci)=>{
+    const x=coord(c.x,'x'),y=coord(c.y,'y'); if(x===null||y===null){ err.push(`取消柱第 ${ci+1} 行：位置讀唔到`); return; }
+    const r=range(c.s1,c.s2,`取消柱第 ${ci+1} 行`); if(r) removed.push({src:ci,x,y,s1:r[0],s2:r[1]});
   });
   const inR=(p,s)=>p.ranges.some(r=>r[0]<=s&&s<=r[1]);
-  Object.assign(M,{zones,walls,pts,pmap,pkey,inR});
+  Object.assign(M,{zones,walls,pts,pmap,pkey,inR,extraCols,removed});
   if (err.length) return M;
 
   const zAct=(z,s)=>z.s1<=s&&s<=z.s2;
@@ -331,7 +336,7 @@ function buildModel(S){
   const nodeSlab=(k,x,y)=>quad((a,b)=>slabAt(k,a,b))(x,y);
   const nodeActive=(s,x,y)=>quad((a,b)=>active(s,a,b))(x,y);
   const present=st=>st==='col'||st==='edge'||st==='core';
-  const REMOVED=new Set(['void','colfree','nosupport']);
+  const REMOVED=new Set(['void','colfree','nosupport','manual']);
 
   // 柱狀態
   const col=[];
@@ -342,6 +347,7 @@ function buildModel(S){
       let st;
       if (!inR(p,s)||!nodeActive(s,p.x,p.y)) st='none';
       else if (zs.some(z=>z.type==='core'&&inside(z,p.x,p.y,'cl'))) st='core';
+      else if (removed.some(r=>r.s1<=s&&s<=r.s2&&Math.abs(r.x-p.x)<TOL&&Math.abs(r.y-p.y)<TOL)) st='manual';
       else if (zs.some(z=>z.type==='void'&&inside(z,p.x,p.y,'int'))) st='void';
       else if (zs.some(z=>z.type==='colfree'&&inside(z,p.x,p.y,'int'))) st='colfree';
       else if (S.rules.autoStop&&s>0&&REMOVED.has(col[s-1][p.id])&&!zs.some(z=>z.type==='keep'&&inside(z,p.x,p.y,'cl'))) st='nosupport';
@@ -584,7 +590,7 @@ const SYS_EN={RC:'reinforced concrete girder',PT:'post-tensioned concrete girder
 
 function issues(M){
   const out=[]; const P=M.S.params; const add=(sev,t)=>out.push({sev,t});
-  const why=w=>({void:'中庭',colfree:'無柱區',nosupport:'下層冇柱承托'}[w]);
+  const why=w=>({void:'中庭',colfree:'無柱區',nosupport:'下層冇柱承托',manual:'人手取消'}[w]);
   M.omit.forEach(o=>add('high',`柱 ${o.node} 喺 ${M.L[o.s1].name} 至 ${M.L[o.s2+1].name} 之間取消（${[...o.why].map(why).join('、')}）`));
   M.edges.forEach(e=>add('mid',`柱 ${e.node} 喺 ${M.L[e.s1].name}${e.s1!==e.s2?'–'+M.L[e.s2].name:''} 落喺無柱區邊線：建議柱身向外偏移，令內側柱面對齊軸線`));
   Object.values(M.levelInfo).forEach(li=>{
@@ -727,7 +733,7 @@ function schemeText(M,e,label){
   });
   if (M.walls.length) lines.push(`- ${M.walls.length} RC wall panels (e.g. cross walls between rooms) act as vertical load-bearing and lateral load-resisting elements.`);
   lines.push(`- Floors: ${F.mat==='st'?'composite steel beams with metal-deck composite slabs; basement, retaining walls and cores in RC':'RC beam-and-slab or flat slab floors'}.`);
-  const why=w=>({void:'atrium / void',colfree:'column-free zone',nosupport:'not supported below'}[w]);
+  const why=w=>({void:'atrium / void',colfree:'column-free zone',nosupport:'not supported below',manual:'omitted in the column layout'}[w]);
   M.omit.slice(0,12).forEach(o=>lines.push(`- Column ${o.node} is omitted between ${L[o.s1].name} and ${L[o.s2+1].name} (${[...o.why].map(why).join(', ')}).`));
   if (M.omit.length>12) lines.push(`- … and ${M.omit.length-12} further omitted columns (see framing plan).`);
   M.edges.forEach(x=>lines.push(`- Column ${x.node} at ${L[x.s1].name}${x.s1!==x.s2?'–'+L[x.s2].name:''} lies on the edge of the column-free zone; it is offset outward so that its inner face aligns with the grid line.`));
@@ -998,6 +1004,7 @@ function renderInput(){
   const h=$('#tab-input'); h.innerHTML='';
   const re=()=>renderInput();
   const c0=card(h,'項目'); const r0=document.createElement('div'); r0.className='row'; r0.appendChild(field('名稱',S,'title',{w:'360px'})); c0.appendChild(r0);
+  const dh=document.createElement('div'); dh.id='drawHost'; h.appendChild(dh); renderDraw();
 
   const c2=card(h,'樓層表','由最低層填至最高層。層高 = 由本層至上一層嘅距離；淨空同機電層亦係指本層。最頂一行（天面）只填名稱。「可放桁架／斜撐」= 該層冇柱位或結構限制（機房層、避難層、停車場）。');
   tableEditor(c2,S.levels,[
@@ -1029,6 +1036,11 @@ function renderInput(){
     {key:'name',label:'名稱'},{key:'x',label:'X',type:'num'},{key:'y',label:'Y',type:'num'},{key:'s1',label:'由層',type:'select',options:storeyOpts(true)},{key:'s2',label:'至層',type:'select',options:storeyOpts(true)}
   ],re);
 
+  const c5b=card(h,'取消柱（人手）','喺軸網上某啲位置唔要柱。繪圖「取消柱」工具會自動加入呢度；下層柱取消後上層柱會自動取消（除非關閉「規則」入面嘅自動取消）。');
+  tableEditor(c5b,S.removed,[
+    {key:'x',label:'X',type:'num'},{key:'y',label:'Y',type:'num'},{key:'s1',label:'由層',type:'select',options:storeyOpts(true)},{key:'s2',label:'至層',type:'select',options:storeyOpts(true)}
+  ],re);
+
   const c6=card(h,'特殊構件（非軸網問題）','唔係由軸網推算出嘅難點，例如大跨度屋頂、懸臂雨篷。「層高桁架高度」= 可用嚟做桁架嘅高度（0 = 不可）。橋、天橋、看台屋面請用「④ 跨度題」。');
   tableEditor(c6,S.specials,[
     {key:'name',label:'名稱'},{key:'level',label:'位置／樓層'},{key:'span',label:'跨度 m',type:'num'},{key:'avail',label:'可用深度 m',type:'num'},
@@ -1055,15 +1067,172 @@ function renderInput(){
   const rp=document.createElement('button'); rp.textContent='還原預設參數'; rp.style.marginTop='8px'; rp.onclick=()=>{S.params={...DEFAULT_PARAMS};renderInput();changed();}; c9.appendChild(rp);
 }
 
+
+/* ---------- 平面繪圖 ---------- */
+const DRAW={s:null,tool:'select',ztype:'colfree',r1:'',r2:'',sel:null};
+const DRAW_TOOLS=[['select','選取／拖曳'],['zone','畫限制區'],['wall','畫牆'],['col','加柱'],['delcol','取消／恢復柱']];
+function commitDraw(msg){ persist(); try{ M=buildModel(S); }catch(e){ M={err:['計算出錯：'+e.message]}; } renderInput(); flash(msg||'已更新'); }
+function renderDraw(){
+  const host=document.getElementById('drawHost'); if(!host) return;
+  host.innerHTML='';
+  const c=card(host,'平面繪圖（直接喺圖上畫）','揀層數同工具。<b>選取／拖曳</b>：拖區域、牆、額外柱；拖<b>軸線編號圓圈</b>改軸距（即係移動建築邊界）。<b>畫限制區</b>：揀類型後喺圖上拖一個長方形。<b>畫牆</b>：由起點拖到終點。<b>加柱／取消柱</b>：撳一下。新畫嘅嘢套用下面「由層／至層」，之後可以喺表格再改。位置會自動吸附軸線，否則以 0.5m 為單位。');
+  if (!M||(M.err&&M.err.length)||!M.cells){ c.insertAdjacentHTML('beforeend','<div class="err">輸入有錯誤，修正後先可以用繪圖（見下面表格或分析頁）。</div>'); return; }
+  const nS=M.nL-1; if(DRAW.s===null||DRAW.s>=nS) DRAW.s=Math.min(Math.max(M.ri||0,0),nS-1);
+  const sn=M.L[DRAW.s].name;
+  const names=M.L.slice(0,nS).map(l=>l.name);
+  if(!names.includes(DRAW.r1)) DRAW.r1=sn; if(!names.includes(DRAW.r2)) DRAW.r2=sn;
+  const opt=(arr,cur)=>arr.map(([v,t])=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(t)}</option>`).join('');
+  const bar=document.createElement('div'); bar.className='row'; bar.style.marginBottom='6px';
+  bar.innerHTML=`<label>顯示層 <select id="dwS">${opt(names.map((n,i)=>[String(i),n+'（樓面至上一層）']),String(DRAW.s))}</select></label>
+    <label>工具 <select id="dwT">${opt(DRAW_TOOLS,DRAW.tool)}</select></label>
+    <label ${DRAW.tool==='zone'?'':'hidden'}>限制區類型 <select id="dwZ">${opt(ZONE_TYPES,DRAW.ztype)}</select></label>
+    <label>新物件 由層 <select id="dwR1">${opt(names.map(n=>[n,n]),DRAW.r1)}</select></label>
+    <label>至層 <select id="dwR2">${opt(names.map(n=>[n,n]),DRAW.r2)}</select></label>
+    <button id="dwDel" ${DRAW.sel?'':'disabled'}>刪除所選</button><span class="hint" id="dwInfo">${DRAW.sel?esc(DRAW.sel.label):''}</span>`;
+  c.appendChild(bar);
+  const area=document.createElement('div'); c.appendChild(area);
+  area.innerHTML=planSVG(M,DRAW.s+1,null)+legend(false);
+  bar.querySelector('#dwS').onchange=e=>{ DRAW.s=+e.target.value; DRAW.r1=DRAW.r2=M.L[DRAW.s].name; DRAW.sel=null; renderDraw(); };
+  bar.querySelector('#dwT').onchange=e=>{ DRAW.tool=e.target.value; DRAW.sel=null; renderDraw(); };
+  bar.querySelector('#dwZ').onchange=e=>{ DRAW.ztype=e.target.value; };
+  bar.querySelector('#dwR1').onchange=e=>{ DRAW.r1=e.target.value; };
+  bar.querySelector('#dwR2').onchange=e=>{ DRAW.r2=e.target.value; };
+  bar.querySelector('#dwDel').onclick=()=>{ const sl=DRAW.sel; if(!sl) return; ({zone:S.zones,wall:S.walls,col:S.columns}[sl.kind]).splice(sl.src,1); DRAW.sel=null; commitDraw('已刪除'); };
+  attachDraw(area.querySelector('svg'));
+}
+function attachDraw(svg){
+  const G=geom(M), NS='http://www.w3.org/2000/svg', sIdx=DRAW.s;
+  svg.style.touchAction='none'; svg.style.cursor=DRAW.tool==='select'?'default':'crosshair';
+  const el=(tag,a)=>{ const e=document.createElementNS(NS,tag); for(const k in a) e.setAttribute(k,a[k]); return e; };
+  const ov=el('g',{}); svg.appendChild(ov);
+  const toW=ev=>{ const pt=svg.createSVGPoint(); pt.x=ev.clientX; pt.y=ev.clientY; const p=pt.matrixTransform(svg.getScreenCTM().inverse()); return [G.ix(p.x),G.iy(p.y)]; };
+  const lines={x:[],y:[]}; M.grids.forEach(g=>{ lines.x.push(...g.gx.pos); lines.y.push(...g.gy.pos); });
+  const snap=(v,ax)=>{ const tol=Math.max(0.3,8/G.s); let b=null; for(const p of lines[ax]) if(Math.abs(p-v)<=tol&&(b===null||Math.abs(p-v)<Math.abs(b-v))) b=p; return b!==null?b:Math.round(v*2)/2; };
+  const L=(v,ax)=>M.axLabel(+v.toFixed(3),ax);
+  const r1=DRAW.r1, r2=DRAW.r2;
+  let drag=null, prev=null;
+  const showPrev=shape=>{ if(prev) prev.remove(); prev=shape; if(prev) ov.appendChild(prev); };
+  const select=(kind,src,label)=>{ DRAW.sel={kind,src,label}; const d=document.getElementById('dwDel'); if(d) d.disabled=false; const i=document.getElementById('dwInfo'); if(i) i.textContent='已選：'+label; };
+  const start=(ev,d)=>{ ev.stopPropagation(); ev.preventDefault(); const [wx,wy]=toW(ev); drag={...d,sx:wx,sy:wy,dx:0,dy:0}; svg.setPointerCapture(ev.pointerId); };
+  if (DRAW.tool==='select'){
+    M.zones.filter(z=>M.zAct(z,sIdx)).forEach(z=>{
+      const r=el('rect',{x:G.X(z.x1),y:G.Y(z.y1),width:(z.x2-z.x1)*G.s,height:(z.y2-z.y1)*G.s,fill:'transparent',stroke:'var(--acc)','stroke-width':1.5,'stroke-dasharray':'2 3',style:'cursor:move'});
+      r.addEventListener('pointerdown',ev=>{ select('zone',z.src,`限制區「${z.name}」`); start(ev,{mode:'zmove',z}); }); ov.appendChild(r);
+      [[z.x1,z.y1,'x1','y1'],[z.x2,z.y1,'x2','y1'],[z.x1,z.y2,'x1','y2'],[z.x2,z.y2,'x2','y2']].forEach(([x,y,kx,ky])=>{
+        const hdl=el('rect',{x:G.X(x)-5,y:G.Y(y)-5,width:10,height:10,fill:'var(--card)',stroke:'var(--acc)','stroke-width':2,style:'cursor:nwse-resize'});
+        hdl.addEventListener('pointerdown',ev=>{ select('zone',z.src,`限制區「${z.name}」`); start(ev,{mode:'zcorner',z,kx,ky}); }); ov.appendChild(hdl);
+      });
+    });
+    M.walls.filter(w=>w.s1<=sIdx&&sIdx<=w.s2).forEach(w=>{
+      const hit=el('line',{x1:G.X(w.x1),y1:G.Y(w.y1),x2:G.X(w.x2),y2:G.Y(w.y2),stroke:'transparent','stroke-width':12,style:'cursor:move'});
+      hit.addEventListener('pointerdown',ev=>{ select('wall',w.src,`牆「${S.walls[w.src].name||'牆'}」${w.rowN>1?'（成排 '+w.rowN+' 幅）':''}`); start(ev,{mode:'wmove',w}); }); ov.appendChild(hit);
+      if (w.rowN===1) [['1',w.x1,w.y1],['2',w.x2,w.y2]].forEach(([e,x,y])=>{
+        const c=el('circle',{cx:G.X(x),cy:G.Y(y),r:5,fill:'var(--card)',stroke:'var(--wallup)','stroke-width':2,style:'cursor:crosshair'});
+        c.addEventListener('pointerdown',ev=>{ select('wall',w.src,`牆「${S.walls[w.src].name||'牆'}」`); start(ev,{mode:'wend',w,e}); }); ov.appendChild(c);
+      });
+    });
+    M.extraCols.filter(c=>c.s1<=sIdx&&sIdx<=c.s2).forEach(cl=>{
+      const c=el('circle',{cx:G.X(cl.x),cy:G.Y(cl.y),r:8,fill:'transparent',stroke:'var(--m2)','stroke-width':2,style:'cursor:move'});
+      c.addEventListener('pointerdown',ev=>{ select('col',cl.src,`額外柱「${S.columns[cl.src].name||''}」`); start(ev,{mode:'cmove',cl}); }); ov.appendChild(c);
+    });
+    M.grids.forEach((g,gi)=>{
+      if (!(g.s1<=sIdx&&sIdx<=g.s2)) return; const off=gi===0?0:14;
+      g.gx.pos.forEach((p,i)=>{ const c=el('circle',{cx:G.X(p),cy:G.Y(g.gy.pos[0])-18-off,r:8,fill:'var(--acc)','fill-opacity':.18,stroke:'var(--acc)',style:'cursor:ew-resize'});
+        c.addEventListener('pointerdown',ev=>start(ev,{mode:'grid',gi,ax:'x',i,p})); ov.appendChild(c); });
+      g.gy.pos.forEach((p,i)=>{ const c=el('circle',{cx:G.X(g.gx.pos[0])-18-off,cy:G.Y(p),r:8,fill:'var(--acc)','fill-opacity':.18,stroke:'var(--acc)',style:'cursor:ns-resize'});
+        c.addEventListener('pointerdown',ev=>start(ev,{mode:'grid',gi,ax:'y',i,p})); ov.appendChild(c); });
+    });
+  }
+  svg.addEventListener('pointerdown',ev=>{
+    if (ev.button>0) return;
+    const [wx,wy]=toW(ev);
+    if (DRAW.tool==='zone'||DRAW.tool==='wall'){ const x=snap(wx,'x'),y=snap(wy,'y'); ev.preventDefault(); drag={mode:DRAW.tool,ax:x,ay:y,bx:x,by:y}; svg.setPointerCapture(ev.pointerId); return; }
+    if (DRAW.tool==='col'){ const x=snap(wx,'x'),y=snap(wy,'y'); S.columns.push({name:'C'+(S.columns.length+1),x:L(x,'x'),y:L(y,'y'),s1:r1,s2:r2}); commitDraw('已加柱'); return; }
+    if (DRAW.tool==='delcol'){
+      const tol=12/G.s; let best=null;
+      M.pts.forEach(p=>{ const st=M.col[sIdx][p.id]; if(st==='none'||st==='core') return; const d=Math.hypot(p.x-wx,p.y-wy); if(d<=tol&&(!best||d<best.d)) best={p,d,st}; });
+      if (!best){ flash('附近冇柱'); return; }
+      const p=best.p;
+      const ex=M.extraCols.find(c=>Math.abs(c.x-p.x)<TOL&&Math.abs(c.y-p.y)<TOL&&c.s1<=sIdx&&sIdx<=c.s2);
+      const rm=M.removed.find(r=>Math.abs(r.x-p.x)<TOL&&Math.abs(r.y-p.y)<TOL&&r.s1<=sIdx&&sIdx<=r.s2);
+      if (rm){ S.removed.splice(rm.src,1); commitDraw(`已恢復柱 ${p.label}`); }
+      else if (ex){ S.columns.splice(ex.src,1); commitDraw(`已刪除額外柱 ${p.label}`); }
+      else if (best.st==='col'||best.st==='edge'){ S.removed.push({x:L(p.x,'x'),y:L(p.y,'y'),s1:r1,s2:r2}); commitDraw(`已取消柱 ${p.label}（${r1}–${r2}）`); }
+      else flash(`柱 ${p.label} 係因為中庭／無柱區／下層冇柱而取消，要改限制區先可以恢復`);
+    }
+  });
+  svg.addEventListener('pointermove',ev=>{
+    if (!drag) return; const [wx,wy]=toW(ev);
+    if (drag.mode==='zone'||drag.mode==='wall'){
+      drag.bx=snap(wx,'x'); drag.by=snap(wy,'y');
+      if (drag.mode==='wall'){ if(Math.abs(drag.bx-drag.ax)<Math.abs(drag.by-drag.ay)*0.15) drag.bx=drag.ax; if(Math.abs(drag.by-drag.ay)<Math.abs(drag.bx-drag.ax)*0.15) drag.by=drag.ay;
+        showPrev(el('line',{x1:G.X(drag.ax),y1:G.Y(drag.ay),x2:G.X(drag.bx),y2:G.Y(drag.by),stroke:'var(--wallup)','stroke-width':4})); }
+      else { const x1=Math.min(drag.ax,drag.bx),x2=Math.max(drag.ax,drag.bx),y1=Math.min(drag.ay,drag.by),y2=Math.max(drag.ay,drag.by);
+        showPrev(el('rect',{x:G.X(x1),y:G.Y(y1),width:(x2-x1)*G.s,height:(y2-y1)*G.s,fill:'var(--acc)','fill-opacity':.15,stroke:'var(--acc)','stroke-width':2})); }
+      return;
+    }
+    drag.dx=wx-drag.sx; drag.dy=wy-drag.sy;
+    if (drag.mode==='zmove'||drag.mode==='zcorner'){
+      const z=drag.z; let {x1,x2,y1,y2}=z;
+      if (drag.mode==='zmove'){ const nx=snap(x1+drag.dx,'x'), ny=snap(y1+drag.dy,'y'); x2+=nx-x1; y2+=ny-y1; x1=nx; y1=ny; }
+      else { const nx=snap(z[drag.kx]+drag.dx,'x'), ny=snap(z[drag.ky]+drag.dy,'y'); if(drag.kx==='x1') x1=nx; else x2=nx; if(drag.ky==='y1') y1=ny; else y2=ny; }
+      drag.res={x1:Math.min(x1,x2),x2:Math.max(x1,x2),y1:Math.min(y1,y2),y2:Math.max(y1,y2)};
+      const r=drag.res; showPrev(el('rect',{x:G.X(r.x1),y:G.Y(r.y1),width:(r.x2-r.x1)*G.s,height:(r.y2-r.y1)*G.s,fill:'var(--acc)','fill-opacity':.15,stroke:'var(--acc)','stroke-width':2}));
+    } else if (drag.mode==='wmove'||drag.mode==='wend'){
+      const w=drag.w; let {x1,y1,x2,y2}=w;
+      if (drag.mode==='wmove'){ const nx=snap(x1+drag.dx,'x'), ny=snap(y1+drag.dy,'y'); x2+=nx-x1; y2+=ny-y1; x1=nx; y1=ny; }
+      else if (drag.e==='1'){ x1=snap(x1+drag.dx,'x'); y1=snap(y1+drag.dy,'y'); } else { x2=snap(x2+drag.dx,'x'); y2=snap(y2+drag.dy,'y'); }
+      drag.res={x1,y1,x2,y2}; showPrev(el('line',{x1:G.X(x1),y1:G.Y(y1),x2:G.X(x2),y2:G.Y(y2),stroke:'var(--acc)','stroke-width':4}));
+    } else if (drag.mode==='cmove'){
+      const x=snap(drag.cl.x+drag.dx,'x'), y=snap(drag.cl.y+drag.dy,'y'); drag.res={x,y};
+      showPrev(el('circle',{cx:G.X(x),cy:G.Y(y),r:8,fill:'var(--m2)','fill-opacity':.4}));
+    } else if (drag.mode==='grid'){
+      const v=Math.round((drag.p+(drag.ax==='x'?drag.dx:drag.dy))*2)/2; drag.res=v;
+      const g=M.grids[drag.gi];
+      showPrev(drag.ax==='x'?el('line',{x1:G.X(v),y1:G.Y(g.gy.pos[0])-10,x2:G.X(v),y2:G.Y(g.gy.pos.at(-1))+10,stroke:'var(--acc)','stroke-width':2}):el('line',{x1:G.X(g.gx.pos[0])-10,y1:G.Y(v),x2:G.X(g.gx.pos.at(-1))+10,y2:G.Y(v),stroke:'var(--acc)','stroke-width':2}));
+      const i=document.getElementById('dwInfo'); if(i) i.textContent=`軸線 ${drag.ax==='x'?g.gx.labels[drag.i]:g.gy.labels[drag.i]} → ${v} m`;
+    }
+  });
+  const end=ev=>{
+    if (!drag) return; const d=drag; drag=null; showPrev(null);
+    if (d.mode==='zone'){ const x1=Math.min(d.ax,d.bx),x2=Math.max(d.ax,d.bx),y1=Math.min(d.ay,d.by),y2=Math.max(d.ay,d.by);
+      if (x2-x1<0.5||y2-y1<0.5) return;
+      S.zones.push({type:DRAW.ztype,name:ZONE_ZH[DRAW.ztype].split('（')[0],x1:L(x1,'x'),x2:L(x2,'x'),y1:L(y1,'y'),y2:L(y2,'y'),s1:r1,s2:r2,head:'',svc:''}); commitDraw('已加限制區'); return; }
+    if (d.mode==='wall'){ if(Math.hypot(d.bx-d.ax,d.by-d.ay)<0.5) return;
+      S.walls.push({name:'W'+(S.walls.length+1),x1:L(d.ax,'x'),y1:L(d.ay,'y'),x2:L(d.bx,'x'),y2:L(d.by,'y'),s1:r1,s2:r2,n:1,dx:0,dy:0}); commitDraw('已加牆'); return; }
+    if (d.res===undefined) return;
+    if (d.mode==='zmove'||d.mode==='zcorner'){ const r=d.res; if(r.x2-r.x1<0.5||r.y2-r.y1<0.5) return; Object.assign(S.zones[d.z.src],{x1:L(r.x1,'x'),x2:L(r.x2,'x'),y1:L(r.y1,'y'),y2:L(r.y2,'y')}); commitDraw('已移動限制區'); }
+    else if (d.mode==='wmove'||d.mode==='wend'){
+      const row=S.walls[d.w.src], r=d.res;
+      if (d.mode==='wmove'){ const base=M.walls.find(w=>w.src===d.w.src&&w.inst===0); const ox=r.x1-d.w.x1, oy=r.y1-d.w.y1;
+        Object.assign(row,{x1:L(base.x1+ox,'x'),y1:L(base.y1+oy,'y'),x2:L(base.x2+ox,'x'),y2:L(base.y2+oy,'y')}); }
+      else Object.assign(row,{x1:L(r.x1,'x'),y1:L(r.y1,'y'),x2:L(r.x2,'x'),y2:L(r.y2,'y')});
+      commitDraw('已移動牆');
+    }
+    else if (d.mode==='cmove'){ Object.assign(S.columns[d.cl.src],{x:L(d.res.x,'x'),y:L(d.res.y,'y')}); commitDraw('已移動柱'); }
+    else if (d.mode==='grid'){
+      const g=S.grids[d.gi], mg=M.grids[d.gi], pos=d.ax==='x'?mg.gx.pos:mg.gy.pos, spKey=d.ax==='x'?'xSp':'ySp', oKey=d.ax==='x'?'ox':'oy';
+      const sp=String(g[spKey]).split(/[,，\s]+/).filter(Boolean).map(Number), v=d.res, i=d.i;
+      if (i===0){ const dd=v-pos[0]; if(sp.length&&sp[0]-dd<0.5){flash('軸距太細');return;} if(sp.length) sp[0]=+(sp[0]-dd).toFixed(3); g[oKey]=+((num(g[oKey])||0)+dd).toFixed(3); }
+      else { const left=v-pos[i-1]; if(left<0.5){flash('軸距太細');return;} sp[i-1]=+left.toFixed(3); if(i<pos.length-1){ const right=pos[i+1]-v; if(right<0.5){flash('軸距太細');return;} sp[i]=+right.toFixed(3); } }
+      g[spKey]=sp.join(','); commitDraw('已改軸距');
+    }
+  };
+  svg.addEventListener('pointerup',end); svg.addEventListener('pointercancel',()=>{ drag=null; showPrev(null); });
+}
+
 /* ---------- 平面圖 ---------- */
 const GRID_COLORS=['var(--mute)','#b26a00','#2e7d32','#8e24aa'];
+function geom(M){
+  const x0=Math.min(...M.xs), x1=Math.max(...M.xs), y0=Math.min(...M.ys), y1=Math.max(...M.ys);
+  const W=820, pad=54; const Lx=Math.max(x1-x0,1), Ly=Math.max(y1-y0,1);
+  const s=Math.min((W-2*pad)/Lx,(620-2*pad)/Ly);
+  return {x0,y0,s,pad,H:Ly*s+2*pad,Wd:Lx*s+2*pad,X:x=>pad+(x-x0)*s,Y:y=>pad+(y-y0)*s,ix:px=>(px-pad)/s+x0,iy:py=>(py-pad)/s+y0};
+}
 function planSVG(M,k,famEval){
   const {nL,col,present,pts}=M;
   const act=g=>(k-1>=g.s1&&k-1<=g.s2)||(k<=nL-2&&k>=g.s1&&k<=g.s2);
-  const x0=Math.min(...M.xs), x1=Math.max(...M.xs), y0=Math.min(...M.ys), y1=Math.max(...M.ys);
-  const W=820, pad=54; const Lx=Math.max(x1-x0,1), Ly=Math.max(y1-y0,1);
-  const s=Math.min((W-2*pad)/Lx,(620-2*pad)/Ly); const H=Ly*s+2*pad, Wd=Lx*s+2*pad;
-  const X=x=>pad+(x-x0)*s, Y=y=>pad+(y-y0)*s;
+  const {s,H,Wd,X,Y}=geom(M);
   let g='';
   M.cells.forEach(c=>{ if(M.slabAt(k,c.cx,c.cy)) g+=`<rect x="${X(c.x1)}" y="${Y(c.y1)}" width="${(c.x2-c.x1)*s}" height="${(c.y2-c.y1)*s}" fill="var(--slab)"/>`; });
   M.zones.forEach(z=>{
@@ -1281,7 +1450,7 @@ let tabNow='input', timer=null;
 function changed(){ persist(); clearTimeout(timer); timer=setTimeout(recompute,250); }
 function recompute(){
   try { M=buildModel(S); } catch(e){ M={err:['計算出錯：'+e.message]}; console.error(e); }
-  if (tabNow==='analysis') renderAnalysis(); if (tabNow==='schemes') renderSchemes(); if (tabNow==='spans') updateSpanOutputs();
+  if (tabNow==='input') renderDraw(); if (tabNow==='analysis') renderAnalysis(); if (tabNow==='schemes') renderSchemes(); if (tabNow==='spans') updateSpanOutputs();
   const n=M.err?.length; $('#status').textContent=n?`有 ${n} 項輸入問題（見分析頁）`:`已更新：${M.members?.length||0} 個長跨／轉換構件，${M.tpoints?.length||0} 個轉換點`;
 }
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
