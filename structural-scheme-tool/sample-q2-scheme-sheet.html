@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Q2 Scheme Sheet</title>
+<style>
+:root{--ink:#111;--mute:#666;--line:#bbb;--bg:#e9ebee;--page:#fff;--main:#1f4fd1;--sec:#36a9e1;--cant:#d62828;--tran:#1a9e3f;--core:#555;--hatch:#999}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 "Helvetica Neue",Arial,sans-serif}
+.page{background:var(--page);width:min(860px,100% - 24px);margin:14px auto;padding:22px 28px;border:1px solid #ccc;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+h1{font-size:16px;margin:0 0 4px}
+h2{font-size:14px;margin:18px 0 6px;text-transform:uppercase;border-bottom:1.5px solid var(--ink);padding-bottom:2px}
+h3{font-size:13px;margin:12px 0 4px;text-transform:uppercase}
+.u{text-transform:uppercase}
+.note{color:var(--mute);font-size:12px}
+table{border-collapse:collapse;width:100%;margin:4px 0 8px}
+th,td{border:1px solid var(--line);padding:3px 6px;text-align:left;vertical-align:top;font-size:12.5px}
+th{background:#f3f4f6}
+.chk{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;white-space:pre-wrap;margin:2px 0 8px}
+.ok{color:#137333;font-weight:600}.ng{color:#c5221f;font-weight:600}
+svg text{font-family:"Helvetica Neue",Arial,sans-serif}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;margin:4px 0 8px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.banner{background:#fff8e1;border:1px solid #f0d68a;border-radius:6px;padding:8px 10px;margin-bottom:10px;font-size:12.5px}
+@media print{body{background:#fff}.page{box-shadow:none;border:none;margin:0;width:auto;page-break-after:always}.banner{display:none}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+'use strict';
+/* =====================================================================
+   Sample output: HKIE 2012 Q2 (shopping mall) laid out in the user's
+   answer-template format. Rules follow Answer_Template_v1 and the
+   BN_PrelimDetail_Check spreadsheet.
+   ===================================================================== */
+const Q = {
+  title:'2012 Q2 SHOPPING MALL', storeys:7, basements:3,
+  gx:{lab:['1','2','3','4','5','6','7','8'], pos:[0,10,20,30,40,50,60,70]},
+  gy:{lab:['A','B','C','D','E'], pos:[0,10,20,30,40]},
+  floors:[ // storey: name, F-to-F, headroom, services, use, LL
+    {n:'B3/F',h:4,hr:2.7,sv:0.3,use:'CARPARK',ll:3},{n:'B2/F',h:4,hr:2.7,sv:0.3,use:'CARPARK',ll:3},{n:'B1/F',h:6.5,hr:5.0,sv:0.3,use:'CARPARK',ll:3},
+    {n:'G/F',h:6,hr:4.5,sv:0.3,use:'SHOP',ll:5},{n:'1/F',h:5,hr:3.8,sv:0.3,use:'SHOP',ll:5},{n:'2/F',h:5,hr:3.8,sv:0.3,use:'SHOP',ll:5},
+    {n:'3/F',h:5,hr:3.8,sv:0.3,use:'SHOP',ll:5},{n:'4/F',h:5,hr:3.8,sv:0.3,use:'SHOP',ll:5},{n:'5/F',h:7.5,hr:6.0,sv:0.3,use:'CINEMA',ll:5},
+    {n:'6/F',h:5,hr:3.5,sv:0.3,use:'PLANTROOM',ll:7.5},{n:'R/F',use:'ROOF',ll:2}],
+  core:{x1:0,x2:10,y1:10,y2:30},
+  atrium:{x1:20,x2:40,y1:10,y2:30,h:20,hr:17,from:'1/F',to:'5/F'},
+  cinema:{x1:25,x2:40,y1:15,y2:30}
+};
+const RULE = { slabRC:150, slabComp:125, sdSlab:26, sdSec:23, sdMain:26, sdCant:7, fcuB:45, fcuC:60, kPaRC:20, kPaSt:17.8, ef:1.25, tf:1.5, nRC:27.7, nComp:39.95, py:355, sdPT:20 };
+// S355 sections from BN_PrelimDetail_Check 'S355 Section' sheet: [name, Ixx cm4, Mcx kNm]
+const UB355 = [["UB 127x76x13", 473, 29.0], ["UB 152x89x16", 834, 42.4], ["UB 178x102x19", 1356, 58.9], ["UB 203x102x23", 2105, 80.6], ["UB 203x133x25", 2340, 88.9], ["UB 254x102x22", 2841, 89.2], ["UB 203x133x30", 2896, 108.2], ["UB 254x102x25", 3415, 105.4], ["UB 254x102x28", 4005, 121.6], ["UB 254x146x31", 4413, 135.4], ["UB 305x102x25", 4455, 117.8], ["UB 305x102x28", 5366, 138.8], ["UB 254x146x37", 5537, 166.4], ["UB 305x102x33", 6501, 165.7], ["UB 254x146x43", 6544, 195.0], ["UB 305x127x37", 7171, 185.7], ["UB 305x127x42", 8196, 211.5], ["UB 356x127x33", 8249, 187.1], ["UB 305x165x40", 8503, 214.6], ["UB 305x127x48", 9575, 244.9], ["UB 305x165x46", 9899, 248.0], ["UB 356x127x39", 10170, 227.0], ["UB 305x165x54", 11700, 291.4], ["UB 356x171x45", 12070, 267.0], ["UB 406x140x39", 12510, 249.4], ["UB 356x171x51", 14140, 308.7], ["UB 406x140x46", 15690, 305.9], ["UB 356x171x57", 16040, 347.9], ["UB 406x178x54", 18720, 363.4], ["UB 356x171x67", 19460, 417.2], ["UB 457x152x52", 21370, 377.6], ["UB 406x178x60", 21600, 413.1], ["UB 406x178x67", 24330, 463.7], ["UB 457x152x60", 25500, 443.4], ["UB 406x178x74", 27310, 517.1], ["UB 457x152x67", 28930, 500.6], ["UB 457x191x67", 29380, 506.8], ["UB 457x152x74", 32670, 560.5], ["UB 457x191x74", 33320, 569.5], ["UB 457x152x82", 36590, 623.9], ["UB 457x191x82", 37050, 630.8], ["UB 457x191x89", 41020, 693.8], ["UB 457x191x98", 45730, 768.9], ["UB 533x210x82", 47540, 709.3], ["UB 533x210x92", 55230, 813.0], ["UB 533x210x101", 61520, 899.8], ["UB 533x210x109", 66820, 974.2], ["UB 610x229x101", 75780, 992.5], ["UB 533x210x122", 76040, 1101.0], ["UB 610x229x113", 87320, 1130.3], ["UB 610x229x125", 98610, 1266.4], ["UB 610x229x140", 111800, 1426.9], ["UB 686x254x125", 118000, 1375.9], ["UB 610x305x149", 125900, 1582.6], ["UB 686x254x140", 136300, 1570.2], ["UB 686x254x152", 150400, 1722.5], ["UB 762x267x134", 150700, 1599.9], ["UB 610x305x179", 153000, 1910.9], ["UB 762x267x147", 168500, 1776.2], ["UB 686x254x170", 170300, 1939.9], ["UB 762x267x173", 205300, 2135.2], ["UB 610x305x238", 209500, 2578.9], ["UB 762x267x197", 240000, 2469.0], ["UB 838x292x176", 246000, 2345.4], ["UB 838x292x194", 279200, 2632.0], ["UB 914x305x201", 325300, 2876.9], ["UB 838x292x226", 339700, 3153.9], ["UB 914x305x224", 376400, 3284.8], ["UB 914x305x253", 436300, 3768.8], ["UB 1016x305x249", 481300, 3910.1], ["UB 914x305x289", 504200, 4330.4], ["UB 1016x305x272", 554000, 4419.9], ["UB 914x419x343", 625800, 5332.9], ["UB 1016x305x314", 644200, 5115.8], ["UB 914x419x388", 719600, 6087.3], ["UB 1016x305x349", 723100, 5715.3], ["UB 1016x305x393", 807700, 6387.0], ["UB 1016x305x437", 909900, 7151.8], ["UB 1016x305x487", 1021400, 7992.4]];
+const UC355 = [["UC 152x152x23", 1250, 62.7], ["UC 152x152x30", 1748, 85.4], ["UC 152x152x37", 2210, 106.5], ["UC 203x203x46", 4568, 171.2], ["UC 203x203x52", 5259, 195.3], ["UC 203x203x60", 6125, 226.0], ["UC 203x203x71", 7618, 275.3], ["UC 203x203x86", 9449, 336.6], ["UC 254x254x73", 11410, 341.7], ["UC 254x254x89", 14270, 421.7], ["UC 254x254x107", 17510, 511.2], ["UC 305x305x97", 22250, 548.4], ["UC 254x254x132", 22530, 643.9], ["UC 305x305x118", 27670, 674.5], ["UC 254x254x167", 30000, 835.1], ["UC 305x305x137", 32810, 791.3], ["UC 305x305x158", 38750, 923.3], ["UC 356x368x129", 40250, 854.0], ["UC 356x368x153", 48590, 1021.4], ["UC 305x305x198", 50900, 1185.1], ["UC 356x368x177", 57120, 1190.2], ["UC 305x305x240", 64200, 1463.1], ["UC 356x368x202", 66260, 1368.4], ["UC 305x305x283", 78870, 1758.7], ["UC 356x406x235", 79080, 1614.7], ["UC 356x406x287", 99880, 2002.2], ["UC 356x406x340", 122500, 2411.2], ["UC 356x406x393", 146600, 2832.5], ["UC 356x406x467", 183000, 3445], ["UC 356x406x551", 226900, 4118.3], ["UC 356x406x634", 274800, 4787.2]];
+const pickSec=(list,M,I)=>list.slice().sort((a,b)=>a[1]-b[1]).find(r=>r[2]>=M&&r[1]>=I);
+const UC_AREA = [['UC 305x305x118',150],['UC 305x305x137',174],['UC 356x368x153',195],['UC 305x305x158',201],['UC 356x368x177',226],['UC 305x305x198',252],['UC 356x368x202',257],['UC 356x406x235',299],['UC 305x305x240',306],['UC 356x406x287',366],['UC 356x406x340',433],['UC 356x406x393',501],['UC 356x406x467',595],['UC 356x406x551',702],['UC 356x406x634',808]];
+
+const f0=x=>Math.round(x).toLocaleString('en-US'), f1=x=>x.toFixed(1), f2=x=>x.toFixed(2);
+const up50=x=>Math.ceil(x/50)*50;
+const ok=b=>b?'<span class="ok">∴ OK.</span>':'<span class="ng">∴ NOT OK.</span>';
+const lsr=(base,L)=>base*Math.min(1,10/L);        // span/depth limit with 10/span modification (span > 10 m)
+
+/* ---------- Design appraisal ---------- */
+function zones(){
+  const out=[]; const F=Q.floors;
+  for (let i=0;i<F.length-1;i++){ const f=F[i]; out.push({slab:F[i+1].n,below:f.n,use:f.use,calc:`${f.h*1000} − ${f.hr*1000} − ${f.sv*1000}`,z:Math.round((f.h-f.hr-f.sv)*1000)}); }
+  return out;
+}
+/* ---------- Member checks (RC) ---------- */
+function rcScheme(){
+  const bay=10, n=Math.ceil(bay/(RULE.sdSlab*RULE.slabRC/1000)), slabSpan=bay/n;
+  const secD=Math.max(400,50*bay+50), mainD=secD;
+  const G1L=20, G1D=up50(G1L*1000/lsr(RULE.sdMain,G1L)), G1B=800;
+  const atriumZ=Math.round((Q.atrium.h-Q.atrium.hr-0.3)*1000);
+  const w=RULE.kPaRC*bay, V=RULE.tf*w*G1L/2, d=G1D-70, v=V*1000/(G1B*d), vmax=0.8*Math.sqrt(RULE.fcuB);
+  const z6=Math.round((7.5-6.0-0.3)*1000);
+  const G2D=up50(G1L*1000/RULE.sdPT); const G2B=1000;
+  const trib=bay*(bay+2*bay)/2, nFl=10, P=RULE.kPaRC*trib*nFl*RULE.ef, Ac=P*1000/RULE.nRC, side=up50(Math.sqrt(Ac));
+  return {n,slabSpan,secD,mainD,G1L,G1D,G1B,atriumZ,w,V,d,v,vmax,z6,G2D,G2B,trib,nFl,P,Ac,side};
+}
+/* ---------- Member checks (steel) ---------- */
+function stScheme(){
+  const bay=10, n=Math.ceil(bay/(RULE.sdSlab*RULE.slabComp/1000)), ls=bay/n;
+  const wU=RULE.kPaSt, wLL=5;
+  const MsbReq=wU*ls*bay*bay/8/1.6, IsbReq=2.29*(wLL*ls)*bay**3/2.8;
+  const nP=n-1, k1=[0,3.66,3.12,2.9,2.77][Math.min(nP,4)], k2=[0,0.25,0.333,0.5,0.6][Math.min(nP,4)];
+  const Psb=wU*ls*bay, PsbLL=wLL*ls*bay;            // secondary beams frame in from both sides
+  const MmbReq=k2*Psb*bay/1.6, ImbReq=nP*k1*PsbLL*bay*bay/2.8;
+  const L=20, H=5.0, wT=RULE.kPaSt*bay*2*RULE.tf, M=wT*L*L/8, C=M/H, Amin=C*1000/(0.8*RULE.py)/100;
+  const chord=(UC_AREA.find(u=>u[1]>=Amin)||UC_AREA.at(-1));
+  const trib=bay*(bay+2*bay)/2, nFl=10, Pc=RULE.kPaSt*trib*nFl*RULE.ef, Ac=Pc*1000/RULE.nComp, side=up50(Math.sqrt(Ac));
+  return {n,ls,MsbReq,IsbReq,nP,k1,k2,Psb,PsbLL,MmbReq,ImbReq,L,H,wT,M,C,Amin,chord,trib,nFl,Pc,Ac,side};
+}
+
+/* ---------- Framing plan drawing (answer-template legend) ---------- */
+function plan(opt){
+  const {x1,x2,y1,y2}=opt.ext, S=8.2, pad=46, W=(x2-x1)*S+pad*2+10, H=(y2-y1)*S+pad*2+10;
+  const X=x=>pad+(x-x1)*S, Y=y=>pad+(y-y1)*S;
+  let g='';
+  // hatched zones
+  g+=`<defs><pattern id="h${opt.id}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="var(--hatch)" stroke-width="1"/></pattern></defs>`;
+  (opt.hatch||[]).forEach(z=>{ g+=`<rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#h${opt.id})" stroke="var(--hatch)" stroke-dasharray="4 3"/><text x="${X((z.x1+z.x2)/2)}" y="${Y((z.y1+z.y2)/2)+4}" text-anchor="middle" font-size="10" font-weight="700">${z.t}</text>`; });
+  // grid + dimensions
+  Q.gx.pos.forEach((p,i)=>{ if(p<x1-0.01||p>x2+0.01) return; g+=`<line x1="${X(p)}" y1="${pad-22}" x2="${X(p)}" y2="${Y(y2)+6}" stroke="#999" stroke-width=".6" stroke-dasharray="8 3 2 3"/><circle cx="${X(p)}" cy="${pad-30}" r="9" fill="#fff" stroke="#333"/><text x="${X(p)}" y="${pad-26}" text-anchor="middle" font-size="10">${Q.gx.lab[i]}</text>`;
+    const nx=Q.gx.pos[i+1]; if(nx!==undefined&&nx<=x2+0.01) g+=`<text x="${(X(p)+X(nx))/2}" y="${pad-12}" text-anchor="middle" font-size="9.5">${(nx-p)*1000}</text>`; });
+  Q.gy.pos.forEach((p,j)=>{ if(p<y1-0.01||p>y2+0.01) return; g+=`<line x1="${pad-22}" y1="${Y(p)}" x2="${X(x2)+6}" y2="${Y(p)}" stroke="#999" stroke-width=".6" stroke-dasharray="8 3 2 3"/><circle cx="${pad-30}" cy="${Y(p)}" r="9" fill="#fff" stroke="#333"/><text x="${pad-30}" y="${Y(p)+4}" text-anchor="middle" font-size="10">${Q.gy.lab[j]}</text>`;
+    const ny=Q.gy.pos[j+1]; if(ny!==undefined&&ny<=y2+0.01) g+=`<text x="${pad-12}" y="${(Y(p)+Y(ny))/2}" text-anchor="middle" font-size="9.5" transform="rotate(-90 ${pad-12} ${(Y(p)+Y(ny))/2})">${(ny-p)*1000}</text>`; });
+  // slab outline
+  g+=`<rect x="${X(x1)}" y="${Y(y1)}" width="${(x2-x1)*S}" height="${(y2-y1)*S}" fill="none" stroke="#222" stroke-width="1"/>`;
+  // beams
+  const col={main:'var(--main)',sec:'var(--sec)',cant:'var(--cant)',tran:'var(--tran)'};
+  (opt.beams||[]).forEach(b=>{ g+=`<line x1="${X(b.x1)}" y1="${Y(b.y1)}" x2="${X(b.x2)}" y2="${Y(b.y2)}" stroke="${col[b.t]}" stroke-width="${b.t==='tran'?4.5:b.t==='sec'?1.2:2}"/>`; if(b.lab) g+=`<text x="${X((b.x1+b.x2)/2)+(b.x1===b.x2?6:0)}" y="${Y((b.y1+b.y2)/2)-(b.y1===b.y2?5:0)}" font-size="9.5" fill="${col[b.t]}" font-weight="700" ${b.x1===b.x2?'':'text-anchor="middle"'}>${b.lab}</text>`; });
+  // core
+  const c=Q.core; g+=`<rect x="${X(c.x1)}" y="${Y(c.y1)}" width="${(c.x2-c.x1)*S}" height="${(c.y2-c.y1)*S}" fill="#fff" stroke="var(--core)" stroke-width="3"/><line x1="${X(c.x1)}" y1="${Y(c.y2)}" x2="${X(c.x2)}" y2="${Y(c.y1)}" stroke="var(--core)"/><text x="${X((c.x1+c.x2)/2)}" y="${Y((c.y1+c.y2)/2)+4}" text-anchor="middle" font-size="9" transform="rotate(-62 ${X((c.x1+c.x2)/2)} ${Y((c.y1+c.y2)/2)})">SERVICE CORE</text>`;
+  // columns
+  const cs=8;
+  (opt.cols||[]).forEach(k=>{ const x=X(k.x), y=Y(k.y);
+    if (k.t==='both') g+=`<rect x="${x-cs/2}" y="${y-cs/2}" width="${cs}" height="${cs}" fill="#fff" stroke="#111" stroke-width="1.4"/><path d="M${x-cs/2} ${y-cs/2}L${x+cs/2} ${y+cs/2}M${x+cs/2} ${y-cs/2}L${x-cs/2} ${y+cs/2}" stroke="#111"/>`;
+    else if (k.t==='below') g+=`<rect x="${x-cs/2}" y="${y-cs/2}" width="${cs}" height="${cs}" fill="#fff" stroke="#111" stroke-dasharray="2 1.5"/>`;
+    else if (k.t==='above') g+=`<circle cx="${x}" cy="${y}" r="${cs/2+1}" fill="#fff" stroke="#111" stroke-width="1.4"/>`;
+  });
+  (opt.boxes||[]).forEach(z=>{ g+=`<rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="none" stroke="var(--cant)" stroke-width="1.5" stroke-dasharray="6 3"/><text x="${X(z.x1)+3}" y="${Y(z.y1)-3}" font-size="9.5" fill="var(--cant)" font-weight="700">${z.t}</text>`; });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${g}</svg><div style="text-align:center;font-weight:700;text-decoration:underline;font-size:12.5px">${opt.title}</div><div class="note" style="text-align:center">1:${opt.scale||400} ON A3</div>`;
+}
+function legendHTML(){
+  return `<div class="legend"><b>LEGEND:</b>
+  <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" fill="#fff" stroke="#555" stroke-width="3"/></svg>SERVICE CORE</span>
+  <span><svg width="14" height="14"><rect x="3" y="3" width="8" height="8" fill="#fff" stroke="#111"/><path d="M3 3L11 11M11 3L3 11" stroke="#111"/></svg>COLUMN ABOVE &amp; BELOW</span>
+  <span><svg width="14" height="14"><rect x="3" y="3" width="8" height="8" fill="#fff" stroke="#111" stroke-dasharray="2 1.5"/></svg>COLUMN BELOW</span>
+  <span><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="#fff" stroke="#111"/></svg>COLUMN ABOVE</span>
+  <span><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="var(--main)" stroke-width="2"/></svg>MAIN BEAM</span>
+  <span><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="var(--sec)" stroke-width="1.2"/></svg>SECONDARY BEAM</span>
+  <span><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="var(--cant)" stroke-width="2"/></svg>CANTILEVER BEAM</span>
+  <span><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="var(--tran)" stroke-width="4"/></svg>TRANSFER / LONG-SPAN GIRDER / TRUSS</span></div>`;
+}
+/* Beam layout generator: main beams on grid lines, secondary beams at slab-span spacing */
+function framing(ext, voids, nSec, girders){
+  const beams=[]; const inV=(x,y)=>voids.some(v=>x>v.x1+0.01&&x<v.x2-0.01&&y>v.y1+0.01&&y<v.y2-0.01);
+  const inCore=(x,y)=>x>Q.core.x1-0.01&&x<Q.core.x2+0.01&&y>Q.core.y1-0.01&&y<Q.core.y2+0.01;
+  const xs=Q.gx.pos.filter(p=>p>=ext.x1-0.01&&p<=ext.x2+0.01), ys=Q.gy.pos.filter(p=>p>=ext.y1-0.01&&p<=ext.y2+0.01);
+  ys.forEach(y=>{ for(let i=0;i<xs.length-1;i++){ const mx=(xs[i]+xs[i+1])/2; if(inV(mx,y)||inCore(mx,y)) continue; beams.push({x1:xs[i],y1:y,x2:xs[i+1],y2:y,t:'main'}); } });
+  xs.forEach(x=>{ for(let j=0;j<ys.length-1;j++){ const my=(ys[j]+ys[j+1])/2; if(inV(x,my)||inCore(x,my)) continue; beams.push({x1:x,y1:ys[j],x2:x,y2:ys[j+1],t:'main'}); } });
+  for(let i=0;i<xs.length-1;i++) for(let j=0;j<ys.length-1;j++){
+    const cx=(xs[i]+xs[i+1])/2, cy=(ys[j]+ys[j+1])/2; if(inV(cx,cy)||inCore(cx,cy)) continue;
+    for(let k=1;k<nSec;k++){ const x=xs[i]+(xs[i+1]-xs[i])*k/nSec; beams.push({x1:x,y1:ys[j],x2:x,y2:ys[j+1],t:'sec'}); }
+  }
+  girders.forEach(g=>{ for(let b=beams.length-1;b>=0;b--){ const m=beams[b]; if(m.t==='main'&&((g.x1===g.x2&&m.x1===g.x1&&m.x2===g.x2&&m.y1>=g.y1&&m.y2<=g.y2)||(g.y1===g.y2&&m.y1===g.y1&&m.y2===g.y2&&m.x1>=g.x1&&m.x2<=g.x2))) beams.splice(b,1); } beams.push(g); });
+  return beams;
+}
+function columns(ext, rule){
+  const out=[]; Q.gx.pos.forEach(x=>Q.gy.pos.forEach(y=>{ if(x<ext.x1-0.01||x>ext.x2+0.01||y<ext.y1-0.01||y>ext.y2+0.01) return;
+    if (x>=Q.core.x1-0.01&&x<=Q.core.x2+0.01&&y>=Q.core.y1-0.01&&y<=Q.core.y2+0.01) return;
+    const t=rule(x,y); if(t) out.push({x,y,t}); })); return out;
+}
+
+/* ---------- Page ---------- */
+function render(){
+  const Z=zones(), R=rcScheme(), T=stScheme();
+  const ext={x1:0,x2:50,y1:0,y2:40}, atr=Q.atrium, cin=Q.cinema;
+  const is4C=(x,y)=>x===30&&y===20;
+  const gA=[{x1:30,y1:10,x2:30,y2:30,t:'tran'},{x1:20,y1:20,x2:40,y2:20,t:'tran'}];
+  const lab=(arr,t)=>arr.map((g,i)=>({...g,lab:i===0?t:''}));
+  let h='';
+  h+=`<div class="page"><div class="banner"><b>Sample output only</b> — this is what the tool will print for each question. Layout and formulae follow your Answer_Template_v1 and BN_PrelimDetail_Check spreadsheet. Numbers below are calculated, not typed.</div>
+  <h1>${Q.title} — SECTION A</h1>
+  <h2>Introduction</h2><p class="u">A ${Q.storeys}-storey shopping mall with ${Q.basements}-level basement car park is newly designed. Two distinct and viable solutions for superstructure and foundation will be proposed and one of the schemes will be recommended based on its function, safety, economy and aesthetic.</p>
+  <h2>Design appraisal</h2>
+  <table><tr><th style="width:42%">Client requirement</th><th>Design implication</th></tr>
+  <tr><td class="u">1) Column grid<br>Shop: ≥ 8 m c/c<br>Atrium (1/F~4/F): no internal column<br>5/F cinema: 15 × 15 m column-free<br>6/F &amp; B3/F~B1/F: no restriction</td>
+      <td class="u">G/F~4/F: 10 m c/c grid adopted (≥ 8 m) ✓<br>Column 4/C omitted from 1/F to R/F → 20 m spans at 5/F, 6/F, R/F along grid 4 and grid C<br>Columns 4/D, 5/C, 5/D on edge of cinema zone → offset outward<br>Core 1~2/B~D</td></tr>
+  <tr><td class="u">2) Min. headroom → allowable structural zone (F-to-F − headroom − services)</td><td><table>${Z.slice().reverse().map(z=>`<tr><td>${z.slab} slab (over ${z.below} ${z.use})</td><td>${z.calc} = <b>${z.z} mm</b></td></tr>`).join('')}<tr><td>5/F slab over atrium</td><td>${Q.atrium.h*1000} − ${Q.atrium.hr*1000} − 300 = <b>${R.atriumZ} mm</b></td></tr></table></td></tr>
+  <tr><td class="u">3) F.R.R.</td><td class="u">B3/F~B1/F: 4 hrs; G/F~R/F: 2 hrs</td></tr>
+  <tr><td class="u">4) Imposed load (CoP Dead &amp; Imposed Loads)</td><td class="u">Shop 5 kPa; cinema 5 kPa; plantroom 7.5 kPa; carpark (6A) 3 kPa; roof 2 kPa</td></tr></table>
+  </div>`;
+
+  /* ---------- Scheme 1 ---------- */
+  h+=`<div class="page"><h2>Scheme 1: In-situ RC beam and slab with column and core wall; long-span RC / PT girders over atrium and cinema</h2>
+  <h3>A. Material</h3><p class="u">RC is selected because: it provides high strength / low cost structure with good rigidity and robustness; durable and resists weathering; low maintenance cost.</p>
+  <h3>B. Floor plan</h3>${legendHTML()}
+  <div class="note u">Main beam span length: 10 ~ 12 m (max) &nbsp;|&nbsp; slab span length: &lt; 3.9 m</div>
+  ${plan({id:'p1',ext,title:'1/F ~ 4/F FUNCTIONAL FRAMING (G/F SIMILAR, EXTENDS TO GRID 8)',hatch:[{...atr,t:'ATRIUM (VOID 2/F~4/F)'}],beams:framing(ext,[atr],R.n,[]),cols:columns(ext,(x,y)=>is4C(x,y)?'below':'both'),boxes:[{x1:40,x2:50,y1:0,y2:10,t:'TYPICAL BAY'}]})}
+  ${plan({id:'p2',ext,title:'5/F FRAMING (CINEMA)',hatch:[{...cin,t:'15 × 15 m COLUMN-FREE'}],beams:framing(ext,[],R.n,lab(gA,`G1 ${R.G1D}×${R.G1B}`)),cols:columns(ext,(x,y)=>is4C(x,y)?null:'both')})}
+  ${plan({id:'p3',ext,title:'6/F &amp; R/F FRAMING',beams:framing(ext,[],R.n,lab(gA,`G2 ${R.G2D}×${R.G2B} PT`)),cols:columns(ext,(x,y)=>is4C(x,y)?null:'both')})}
+  <h3>C. Functional frame</h3>
+  <p class="u">RC slab spanning 1-way between secondary beams at ${f2(R.slabSpan)} m c/c. Secondary beams span ${10} m to main beams on the column grid.<br>
+  Long-span RC girders G1 are provided at 5/F along grid 4 (4/B~4/D) and grid C (3/C~5/C), forming a two-way girder grid over the atrium. Post-tensioned girders G2 are provided at 6/F and R/F on the same lines because the structural zone is only ${R.z6} mm.<br>
+  RC core (vertical cantilever) and beam-column frame (portal frame action) are provided for vertical and horizontal stability of the building.</p>
+  <h3>Feasibility check</h3>
+  <div class="chk">SLAB : ${RULE.slabRC}mm THK.
+S/D = ${f0(R.slabSpan*1000)} / ${RULE.slabRC} = ${f1(R.slabSpan*1000/RULE.slabRC)} &lt; ${RULE.sdSlab}    ${ok(R.slabSpan*1000/RULE.slabRC<RULE.sdSlab)}
+
+BEAM SIZE TO BE ( D x B )
+SECONDARY BEAM : ${R.secD} x 300   (span 10 m, zone 900 mm)
+S/D = 10,000 / ${R.secD} = ${f1(10000/R.secD)} &lt; ${RULE.sdSec} x (10 / 10) = ${RULE.sdSec}    ${ok(10000/R.secD<RULE.sdSec)}
+MAIN BEAM : ${R.mainD} x 400
+S/D = 10,000 / ${R.mainD} = ${f1(10000/R.mainD)} &lt; ${RULE.sdMain} x (10 / 10) = ${RULE.sdMain}    ${ok(10000/R.mainD<RULE.sdMain)}
+
+LONG-SPAN GIRDER G1 (5/F, OVER ATRIUM) : ${R.G1D} x ${R.G1B}   (zone ${R.atriumZ} mm ${R.G1D<=R.atriumZ?'✓':'✗'})
+S/D = ${f0(R.G1L*1000)} / ${R.G1D} = ${f1(R.G1L*1000/R.G1D)} &lt; ${RULE.sdMain} x (10 / ${R.G1L}) = ${f1(lsr(RULE.sdMain,R.G1L))}    ${ok(R.G1L*1000/R.G1D<=lsr(RULE.sdMain,R.G1L))}
+ASSUME 20 kPa / FLOOR, LOAD WIDTH 10 m
+V = 1.5 x 20 x 10 x ${R.G1L} / 2 = ${f0(R.V)} kN
+v = V / bd = ${f0(R.V)}E3 / (${R.G1B} x ${R.d}) = ${f2(R.v)} MPa &lt; 0.8√${RULE.fcuB} = ${f2(R.vmax)} MPa    ${ok(R.v<R.vmax)}
+
+GIRDER AT 6/F &amp; R/F (20 m, zone ${R.z6} mm)
+RC: D req. = 20,000 / ${f1(lsr(RULE.sdMain,20))} = ${f0(20000/lsr(RULE.sdMain,20))} mm &gt; ${R.z6} mm    <span class="ng">∴ RC NOT FEASIBLE</span>
+∴ PROVIDE POST-TENSIONED GIRDER G2 : ${R.G2D} x ${R.G2B}
+S/D = 20,000 / ${R.G2D} = ${f1(20000/R.G2D)} ≤ ${RULE.sdPT} (PT, preliminary)  , ${R.G2D} ≤ ${R.z6}    ${ok(20000/R.G2D<=RULE.sdPT&&R.G2D<=R.z6)}
+
+COLUMN (4/B, SUPPORTING G1/G2)
+NO. OF STOREY = ${R.nFl}   TRIBUTARY AREA = 10 x (10 + 20) / 2 = ${R.trib} m2
+LOADING = 20 x ${R.trib} x ${R.nFl} x 1.25 = ${f0(R.P)} kN
+N = 27.7 Ac ( fcu = 60, 2% As)  →  Ac = ${f0(R.Ac)} mm2
+∴ PROVIDE ${R.side} x ${R.side} (Ac,PROV = ${f0(R.side*R.side)} mm2).
+SLENDERNESS = H / D = 6,000 / ${R.side} = ${f1(6000/R.side)} &lt; 15 (BRACED)    ${ok(6000/R.side<15)}</div>
+  <h3>D. Vertical load transfer</h3><p class="u">Slab → secondary beam → main beam / long-span girder → column / core wall → pile cap → foundation.</p>
+  <h3>E. Horizontal load transfer and stability</h3><p class="u">Wind load → external cladding → slab (diaphragm action) → core wall and beam-column framework → pile cap → foundation. The core is eccentric (ex = 20 m) → twisting of the core to be checked; perimeter frames on grids 1, 6, A and E resist torsion.</p>
+  <h3>F. Robustness</h3><p class="u">Effective horizontal and vertical ties; design for min. horizontal force; alternative load path; monolithic construction.</p>
+  <h3>G. Other consideration</h3><p class="u">Torsion (eccentric core); deflection of core and 20 m girders to be checked in detailed design; fire resistance by concrete cover.</p>
+  </div>`;
+
+  /* ---------- Scheme 2 ---------- */
+  h+=`<div class="page"><h2>Scheme 2: Steel composite beam and slab and transfer truss system with column and braced core wall</h2>
+  <h3>A. Material</h3><p class="u">Steel is selected because: high strength to weight ratio; simplicity of assembly; light weight structure which reduces foundation cost.</p>
+  <h3>B. Floor plan</h3>${legendHTML()}
+  ${plan({id:'p4',ext,title:'1/F ~ 4/F FUNCTIONAL FRAMING (G/F SIMILAR)',hatch:[{...atr,t:'ATRIUM (VOID 2/F~4/F)'}],beams:framing(ext,[atr],T.n,[]),cols:columns(ext,(x,y)=>is4C(x,y)?'below':'both')})}
+  ${plan({id:'p5',ext,title:'6/F FRAMING — STOREY-DEEP STEEL TRUSS 6/F~R/F',beams:framing(ext,[],T.n,lab(gA,'T1 TRUSS H=5000')),cols:columns(ext,(x,y)=>is4C(x,y)?null:'both')})}
+  <h3>C. Functional frame</h3><p class="u">Steel decking with in-situ concrete topping provided as floor slab; shear studs form composite action. Columns connected to main beams by moment joints; secondary beams pinned to main beams.<br>Storey-deep steel trusses T1 are provided in the 6/F plant floor along grid 4 and grid C; the bottom chord supports 6/F and the top chord supports R/F. 5/F girders over the atrium are steel plate girders. Braced core and beam-column frames provide stability.</p>
+  <h3>Feasibility check</h3>
+  <div class="chk">SLAB : ${RULE.slabComp} THK. COMPOSITE SLAB
+S/D = ${f0(T.ls*1000)} / ${RULE.slabComp} = ${f1(T.ls*1000/RULE.slabComp)} &lt; ${RULE.sdSlab}    ${ok(T.ls*1000/RULE.slabComp<RULE.sdSlab)}   (3.33 m spacing would give 26.7 &gt; 26 → ${T.n} bays per 10 m)
+ASSUME DL = 7 kPa, LL = 5 kPa, WULS = 17.8 kPa
+
+SECONDARY BEAM (SB), span 10 m, load width ${f2(T.ls)} m
+MREQ. = 17.8 x ${f2(T.ls)} x 10² / 8 / 1.6 = ${f0(T.MsbReq)} kNm
+IREQ. = 2.29 x (5 x ${f2(T.ls)}) x 10³ / 2.8 = ${f0(T.IsbReq)} cm4   (L/360)
+${(()=>{const r=pickSec(UB355,T.MsbReq,T.IsbReq)||pickSec(UC355,T.MsbReq,T.IsbReq);return r?`∴ USE ${r[0]} (GRADE S355) (MC = ${f0(r[2])} kNm, I = ${f0(r[1])} cm4).`:'NO SECTION IN TABLE → use plate girder';})()}
+
+MAIN BEAM (MB), span 10 m, ${T.nP} point loads from SB
+MREQ. = k2 x PSB x lMB / 1.6 = ${T.k2} x ${f0(T.Psb)} x 10 / 1.6 = ${f0(T.MmbReq)} kNm
+IREQ. = n x k1 x PSB,LL x lMB² / 2.8 = ${T.nP} x ${T.k1} x ${f0(T.PsbLL)} x 10² / 2.8 = ${f0(T.ImbReq)} cm4
+${(()=>{const r=pickSec(UB355,T.MmbReq,T.ImbReq)||pickSec(UC355,T.MmbReq,T.ImbReq);return r?`∴ USE ${r[0]} (GRADE S355) (MC = ${f0(r[2])} kNm, I = ${f0(r[1])} cm4).`:'NO SECTION IN TABLE → use plate girder';})()}
+
+TRANSFER TRUSS T1 (6/F~R/F), span ${T.L} m, H = ${T.H} m, carrying 6/F + R/F
+w = 17.8 x 10 x 2 x 1.5 = ${f0(T.wT)} kN/m
+M = wL² / 8 = ${f0(T.M)} kNm
+∴ COMPRESSION FORCE = M / H = ${f0(T.C)} kN
+Ag,min = C / (0.8 py) = ${f0(T.Amin)} cm2  →  PROVIDE ${T.chord[0]} (Ag = ${T.chord[1]} cm2, S355); buckling to be checked
+
+COMPOSITE COLUMN (4/B)
+TOTAL LOAD = 17.8 x ${T.trib} x ${T.nFl} x 1.25 = ${f0(T.Pc)} kN
+Pcp = 39.95 Ac (py = 355, fy = 500, fcu = 45, 2% As, 4% Ag)  →  Ac = ${f0(T.Ac)} mm2
+∴ PROVIDE ${T.side} x ${T.side} ENCASED COLUMN (Ac,PROV = ${f0(T.side*T.side)} mm2).</div>
+  <h3>D–G.</h3><p class="u">Vertical: slab → SB → MB / truss → composite column / braced core → pile cap → foundation. Horizontal: as Scheme 1 with braced core. Fire: sprayed mineral fibre / intumescent paint. Corrosion: paint coating / hot-dip galvanizing.</p>
+  </div>`;
+
+  /* ---------- Recommendation ---------- */
+  h+=`<div class="page"><h2>Recommendation</h2>
+  <table><tr><th>Item</th><th>Scheme 1 (RC)</th><th>Scheme 2 (Steel)</th></tr>
+  <tr><td>1) Local practice</td><td>More typical ✓</td><td>In reverse</td></tr>
+  <tr><td>2) Material availability</td><td>RC readily available ✓</td><td>Need pre-order</td></tr>
+  <tr><td>3) Cost</td><td>Cheaper ✓</td><td>Cost more</td></tr>
+  <tr><td>4) Durability</td><td>Better ✓</td><td>Sensitive to fire and corrosion</td></tr>
+  <tr><td>5) Human comfort</td><td>Less vibration ✓</td><td>In reverse</td></tr>
+  <tr><td>6) Structural efficiency</td><td>Heavy structure → less efficient</td><td>In reverse ✓</td></tr>
+  <tr><td>7) Uplift (site specific)</td><td>Heavier, helps resist 150 kPa uplift ✓</td><td>Lighter → more tension piles</td></tr></table>
+  <p class="u">In general, both schemes satisfy client's requirement and site condition. However, Scheme 1 is recommended due to the comparison above.</p></div>`;
+  document.getElementById('app').innerHTML=h;
+}
+render();
+</script>
+</body>
+</html>
