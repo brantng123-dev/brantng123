@@ -531,14 +531,14 @@ const DEF_SET = {
   tol:15, step:250, minSize:500,
   slabRC:150, slabComp:125, sdSlab:26, sdSec:23, sdMain:26, sdCant:7, cantRC:5, cantSt:7,
   kRC:20, kSt:17.8, ef:1.25, tf:1.5, nRC:27.7, nComp:39.95, fcuB:45, py:355, sdPT:20, plateRatio:6, wallRatio:6, inclMax:0.25,
-  slenderBraced:15, colGroups:3, zoneOffset:1, layouts:1, spRound:0.25, maxLayouts:30, maxBay:20, sdFlat:26, vcFlat:0.6
+  slenderBraced:15, colGroups:3, zoneOffset:1, layouts:1, spRound:0.25, spanRC:12, spanSt:18, maxLayouts:30, maxBay:20, sdFlat:26, vcFlat:0.6
 };
 const SET_LABELS = {
   tol:'"Slightly off" tolerance (%)', step:'Size step (mm)', minSize:'Min. column size (mm)',
   slabRC:'RC slab thickness (mm)', slabComp:'Composite slab thickness (mm)', sdSlab:'Slab S/D limit', sdSec:'Secondary beam S/D (×10/L if L>10)', sdMain:'Main / transfer beam S/D (×10/L if L>10)', sdCant:'Cantilever S/D limit',
   cantRC:'RC cantilever max. span (m)', cantSt:'Steel cantilever max. span (m)',
   kRC:'RC load per floor (kPa)', kSt:'Steel WULS per floor (kPa)', ef:'Elastic factor (columns)', tf:'Transfer factor', nRC:'RC column N/Ac (fcu60, 2%)', nComp:'Composite column N/Ac', fcuB:'Beam fcu (MPa)', py:'Steel py (MPa)',
-  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', layouts:'Generate column layouts (1 = yes, 0 = only the architectural grid)', spRound:'Round column spacing to (m, 0 = exact division)', maxLayouts:'Max. column layouts fully checked', maxBay:'Max. column spacing tried (m)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column'
+  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', layouts:'Generate column layouts (1 = yes, 0 = only the architectural grid)', spanRC:'RC: max. column spacing on the typical grid (m)', spanSt:'Steel: max. column spacing on the typical grid (m)', spRound:'Round column spacing to (m, 0 = exact division)', maxLayouts:'Max. column layouts fully checked', maxBay:'Max. column spacing tried (m)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column'
 };
 const KINDS = [
   ['core','Core wall (rigid support)'],
@@ -848,10 +848,12 @@ function* evalGen(W){
   // a transfer or a change of column grid must be needed: if the same material still works without it, it is meaningless
   const names=out.length?out[0].C.names:[]; const cache=new Map();
   const viableAlt=(alt,mat)=>{ const key=JSON.stringify([alt.sg?[alt.sg.x.pos,alt.sg.y.pos]:'arch',alt.bands?alt.bands.map(b=>[b.from,b.g.x.pos,b.g.y.pos]):0,alt.tmode,alt.from??null,mat]);
-    if (cache.has(key)) return cache.get(key); let ok=false;
-    if (!alt.sg&&!alt.bands&&alt.tmode==='stop') ok=out.some(e=>e.lay.id==='A'&&e.sc.mat===mat&&feasibleE(e));
-    else { const C=compile(W,null,null,alt); if(!C.err.length){ const M=buildModel(C.S); if(!M.err.length) ok=SCHEMES.filter(s0=>s0.mat===mat).some(s0=>{ const R=assess(W,{...s0,lay:alt},C,M); return R.applicable&&R.worst!=='fail'; }); } }
-    cache.set(key,ok); return ok; };
+    if (cache.has(key)) return cache.get(key); let ok=false, ls=0;
+    if (!alt.sg&&!alt.bands&&alt.tmode==='stop'){ const A=out.filter(e=>e.lay.id==='A'); ok=A.some(e=>e.sc.mat===mat&&feasibleE(e)); ls=A.length?lsFloors(A[0].M):0; }
+    else { const C=compile(W,null,null,alt); if(!C.err.length){ const M=buildModel(C.S); if(!M.err.length){ ls=lsFloors(M); ok=SCHEMES.filter(s0=>s0.mat===mat).some(s0=>{ const R=assess(W,{...s0,lay:alt},C,M); return R.applicable&&R.worst!=='fail'; }); } } }
+    const r={ok,ls}; cache.set(key,r); return r; };
+  // floors that need long-span (non-transfer) members over restricted zones
+  function lsFloors(M){ return new Set(M.members.filter(m=>!m.carries).map(m=>m.k)).size; }
   const altsOf=lay=>{ const A=[]; const mk=arr=>arr.length===1?{sg:arr[0].g,tmode:'stop'}:{bands:arr,tmode:'stop'};
     if (lay.tmode==='keep') A.push({what:'the same grid without the transfer (columns stop at the restricted zones)',lay:{...lay,tmode:'stop',from:null}});
     if (lay.bands){ const bs=lay.bands; for(let i=1;i<bs.length;i++){ const lo=bs[i-1].g, hi=bs[i].g;
@@ -862,14 +864,17 @@ function* evalGen(W){
   let n2=0; const todo=lays.filter(l=>l.tmode==='keep'||l.bands);
   for (const lay of todo){ const alts=altsOf(lay);
     for (const mat of ['rc','st']){ const es=out.filter(e=>e.lay===lay&&e.sc.mat===mat&&feasibleE(e)); if(!es.length) continue;
-      const hit=alts.find(a=>viableAlt(a.lay,mat)); if (hit) es.forEach(e=>{ e.R.meaningless=`Not needed: a ${mat==='rc'?'RC':'steel'} scheme also works with ${hit.what}.`; }); }
+      // needed = the alternative fails, or the transfer / grid change saves long-span members on at least two floors
+      const own=lsFloors(es[0].M); const hit=alts.find(a=>{ const r=viableAlt(a.lay,mat); return r.ok&&r.ls-own<2; });
+      if (hit) es.forEach(e=>{ e.R.meaningless=`Not needed: a ${mat==='rc'?'RC':'steel'} scheme also works with ${hit.what}, with long-span members on about as many floors.`; });
+      else es.forEach(e=>{ const a=alts.map(x=>({x,r:viableAlt(x.lay,mat)})).find(y=>y.r.ok); e.R.benefit=a?`Without it (${a.x.what}) long-span members are needed on ${a.r.ls} floors; with it on ${own}.`:'Without it no scheme of this material works.'; }); }
     n2++; yield {phase:'Checking that transfers / grid changes are needed',i:n2,n:todo.length}; }
   return {list:out,lays};
 }
 function evaluate(W){ const g=evalGen(W); let x; while(!(x=g.next()).done); return x.value; }
 const SYS_CAT={RC:'GIRDER',ST:'GIRDER',PT:'GIRDER',RCWALL:'STOREY-DEEP',STRUSS:'STOREY-DEEP',PLATE:'PLATE',INCL:'INCLINED COLUMN',HANG:'HANGER'};
-function layDiff(a,b){ if(a.gkey===b.gkey) return false; if(!!a.band!==!!b.band||!!a.band3!==!!b.band3) return true; if(a.band3&&b.band3&&a.band3.u!==b.band3.u) return true; if(a.nx!==b.nx||a.ny!==b.ny) return true;
-  const mb=l=>[l.gx?l.gx.maxB:10,l.gy?l.gy.maxB:10]; const A=mb(a), B=mb(b); if(Math.abs(A[0]-B[0])>=1.5||Math.abs(A[1]-B[1])>=1.5) return true;
+function layDiff(a,b){ if(a.gkey===b.gkey) return false; if(!!a.band!==!!b.band||!!a.band3!==!!b.band3) return true; if(a.band3&&b.band3&&a.band3.u!==b.band3.u) return true;
+  const mb=l=>[l.gx?l.gx.maxB:10,l.gy?l.gy.maxB:10]; const A=mb(a), B=mb(b); if(Math.abs(A[0]-B[0])>=2.5||Math.abs(A[1]-B[1])>=2.5) return true;
   if (a.band&&b.band&&(a.band.u!==b.band.u||a.ux.pos.length!==b.ux.pos.length||a.uy.pos.length!==b.uy.pos.length)) return true; return false; }
 function sigOf(e){ const tr=[...new Set([...e.R.used].map(u=>SYS_CAT[u]).filter(Boolean))].sort(); return {lay:e.lay.gkey,tm:e.R.checks.some(c=>c.cat==='Transfer'||c.cat==='Transfer plate'||c.cat==='Inclined column'||c.cat==='Hanger + truss')?'TRANSFER':'NO TRANSFER',floor:e.sc.floor==='flat'?'FLAT SLAB':'BEAM AND SLAB',tr:tr.join(' + ')||'NONE'}; }
 // strong = column layout, floor system, or a different transfer principle (plate / hanger / inclined column);
@@ -903,7 +908,8 @@ function recPair(L){
   const rank=(a,b)=>V_RANK[a.R.worst]-V_RANK[b.R.worst]||(a.lay.arch?0:1)-(b.lay.arch?0:1)||((a.lay.scr&&a.lay.scr.u)||0)-((b.lay.scr&&b.lay.scr.u)||0);
   const fe=L.filter(feasibleE), rc=fe.filter(e=>e.sc.mat==='rc').sort(rank), stl=fe.filter(e=>e.sc.mat==='st').sort(rank);
   // default: the RC / steel pair that differs the most (passing schemes first, then uniform spacing)
-  const pen=e=>V_RANK[e.R.worst]*4+((e.lay.scr&&e.lay.scr.u)||0);
+  const pref=e=>{ const b=maxBay(e), [lo,hi]=e.sc.mat==='rc'?[8,10.5]:[15,18]; return b<lo?(lo-b)/3:b>hi?(b-hi)/1.5:0; };
+  const pen=e=>V_RANK[e.R.worst]*4+((e.lay.scr&&e.lay.scr.u)||0)+pref(e);
   let best=null; rc.forEach(a=>stl.forEach(b=>{ if(!distinctBy(a,b).length) return; const sc=aScore(aspects(a,b))-pen(a)-pen(b); if(!best||sc>best.sc) best={a,b,sc}; }));
   let a=rc.find(e=>e.sc.id===view.pickRC)||(best&&best.a)||rc[0], b=stl.find(e=>e.sc.id===view.pickST)||(best&&best.b)||stl[0];
   if (!a||!b) return a||b?{a:a||b,b:null,d:[],rc,stl}:null;
@@ -1082,6 +1088,14 @@ function assess(W,sc,C,M){
       }); });
     if (worst) add({cat:'Column spacing',where:t.name,item:`MIN. ${t.spType==='e'?'CLEAR':'C/C'} SPACING ${f2(worst.val)} m (${worst.a.label}–${worst.b.label})`,calc:`required ≥ ${minSp} m ${t.spType==='e'?'clear':'c/c'}`,need:minSp,have:worst.val,ratio:minSp/worst.val,strict:true,fix:'',ti,minSp});
   });
+  /* --- practical column spacing per material: a longer bay is accepted only where a restricted zone / core forces it --- */
+  { const lim=sc.mat==='rc'?num(st.spanRC)||12:num(st.spanSt)||18; let worstB=null;
+    M.grids.filter(g=>g.cols).forEach(g=>{ for(let i=0;i<g.gx.pos.length-1;i++) for(let j=0;j<g.gy.pos.length-1;j++){
+      const xa=g.gx.pos[i], xb=g.gx.pos[i+1], ya=g.gy.pos[j], yb=g.gy.pos[j+1]; const sp=Math.max(xb-xa,yb-ya); if(sp<=lim+1e-6) continue;
+      let used=false; for(let s=g.s1;s<=g.s2&&!used;s++) if(M.slabAt(s+1,(xa+xb)/2,(ya+yb)/2)) used=true; if(!used) continue;
+      const A=(xb-xa)*(yb-ya), forced=M.zones.some(z=>['void','colfree','core','dbl'].includes(z.type)&&Math.max(0,Math.min(xb,z.x2)-Math.max(xa,z.x1))*Math.max(0,Math.min(yb,z.y2)-Math.max(ya,z.y1))>=0.5*A);
+      if (!forced&&(!worstB||sp>worstB.sp)) worstB={sp,lbl:`${M.ptLabel(xa,ya)}–${M.ptLabel(xb,yb)}`}; } });
+    if (worstB) add({cat:'Grid span',where:worstB.lbl,item:`COLUMN SPACING ${f2(worstB.sp)} m`,calc:`> ${lim} m practical max. for ${sc.mat==='rc'?'RC':'steel'} (not forced by a restricted zone)`,need:worstB.sp,have:lim,ratio:worstB.sp/lim,strict:true,fix:''}); }
   /* --- cantilevers at slab edges --- */
   const cants=[];
   (W.types||[]).forEach((t,ti)=>{ const ss=[]; C.typeOf.forEach((x,s)=>{ if(x===ti) ss.push(s); }); if(!ss.length) return;
