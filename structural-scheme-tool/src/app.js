@@ -208,7 +208,7 @@ function* layoutGen(W){
   const bays=pos=>pos.slice(1).map((p,i)=>+(p-pos[i]).toFixed(2));
   const bayTxt=pos=>{ const b=bays(pos); const out=[]; b.forEach(v=>{ const l=out.at(-1); if(l&&Math.abs(l.v-v)<0.01) l.n++; else out.push({v,n:1}); }); return out.map(o=>(o.n>1?o.n+'@':'')+f2(o.v).replace(/\.?0+$/,'')).join(' + ')+` = ${f1(pos.at(-1)-pos[0]).replace(/\.0$/,'')} m`; };
   const archP={x:C.px.pos.map(r),y:C.py.pos.map(r)}, archL={x:C.xl,y:C.yl};
-  const labelsFor=(pos,ax)=>{ const ap=archP[ax], al=archL[ax], cnt={}; return pos.map(p=>{ const i=ap.findIndex(a=>Math.abs(a-p)<TOL); if(i>=0) return al[i]; let j=-1; ap.forEach((a,k)=>{ if(a<p) j=k; }); const b=j>=0?al[j]:al[0]; cnt[b]=(cnt[b]||0)+1; return b+'abcdefgh'[cnt[b]-1]; }); };
+  const labelsFor=(pos,ax)=>{ const ap=archP[ax], al=archL[ax], cnt={}; return pos.map(p=>{ const i=ap.findIndex(a=>Math.abs(a-p)<TOL); if(i>=0) return al[i]; let j=0; ap.forEach((a,k)=>{ if(a<p) j=k; }); const d=p-ap[j]; return al[j]+(d>=0?'+':'')+d.toFixed(2); }); };
   const zAt=(z,s)=>M.zAct(z,s);
   // candidate positions along one axis for the storeys ss
   const axisC=(ax,ss,maxAx=8)=>{
@@ -531,7 +531,8 @@ function planGroups(M){
 }
 function planSVG2(E,k,grp){
   const {M,R,sc}=E; const st=W.set; const nL=M.nL;
-  const x0=Math.min(...M.xs), x1=Math.max(...M.xs), y0=Math.min(...M.ys), y1=Math.max(...M.ys);
+  const ag={x:{pos:E.C.px.pos,labels:E.C.axl||E.C.xl},y:{pos:E.C.py.pos,labels:E.C.ayl||E.C.yl}};
+  const x0=Math.min(...M.xs,...ag.x.pos), x1=Math.max(...M.xs,...ag.x.pos), y0=Math.min(...M.ys,...ag.y.pos), y1=Math.max(...M.ys,...ag.y.pos);
   const S=Math.min(720/Math.max(x1-x0,1),560/Math.max(y1-y0,1)), pad=56, Wd=(x1-x0)*S+pad*2, H=(y1-y0)*S+pad*2;
   const X=x=>pad+(x-x0)*S, Y=y=>pad+(y-y0)*S; let g='', ngTxt='';
   const clashPts=new Set(R.checks.filter(c=>c.cat==='Column clash'&&c.pt).map(c=>c.pt));
@@ -543,10 +544,17 @@ function planSVG2(E,k,grp){
     g+=`<g class="ly-zone"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#${id})" fill-opacity=".55" stroke="#d62828" stroke-width="1.2" stroke-dasharray="5 3"/><text x="${X((z.x1+z.x2)/2)}" y="${Y((z.y1+z.y2)/2)+16+(zl-1)*13}" text-anchor="middle" font-size="10" font-weight="700" fill="#b71c1c" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())}</text></g>`; });
   // grid
   const gr=gridAt(M,Math.max(0,k-1));
-  gr.gx.pos.forEach((p,i)=>{ g+=`<line x1="${X(p)}" y1="${pad-24}" x2="${X(p)}" y2="${H-pad+8}" stroke="#9aa" stroke-width=".6" stroke-dasharray="9 3 2 3"/><circle cx="${X(p)}" cy="${pad-32}" r="9" fill="#fff" stroke="#333"/><text x="${X(p)}" y="${pad-28}" text-anchor="middle" font-size="10">${esc(gr.gx.labels[i])}</text>`;
-    const n=gr.gx.pos[i+1]; if(n!==undefined) g+=`<text x="${(X(p)+X(n))/2}" y="${pad-13}" text-anchor="middle" font-size="9">${f0((n-p)*1000)}</text>`; });
-  gr.gy.pos.forEach((p,j)=>{ g+=`<line x1="${pad-24}" y1="${Y(p)}" x2="${Wd-pad+8}" y2="${Y(p)}" stroke="#9aa" stroke-width=".6" stroke-dasharray="9 3 2 3"/><circle cx="${pad-32}" cy="${Y(p)}" r="9" fill="#fff" stroke="#333"/><text x="${pad-32}" y="${Y(p)+4}" text-anchor="middle" font-size="10">${esc(gr.gy.labels[j])}</text>`;
-    const n=gr.gy.pos[j+1]; if(n!==undefined){ const cy=(Y(p)+Y(n))/2; g+=`<text x="${pad-13}" y="${cy}" text-anchor="middle" font-size="9" transform="rotate(-90 ${pad-13} ${cy})">${f0((n-p)*1000)}</text>`; } });
+  // grid lines and bubbles: always the question's grid
+  ag.x.pos.forEach((p,i)=>{ g+=`<line x1="${X(p)}" y1="${pad-24}" x2="${X(p)}" y2="${H-pad+8}" stroke="#9aa" stroke-width=".6" stroke-dasharray="9 3 2 3"/><circle cx="${X(p)}" cy="${pad-32}" r="9" fill="#fff" stroke="#333"/><text x="${X(p)}" y="${pad-28}" text-anchor="middle" font-size="10">${esc(ag.x.labels[i])}</text>`;
+    const n=ag.x.pos[i+1]; if(n!==undefined) g+=`<text x="${(X(p)+X(n))/2}" y="${pad-13}" text-anchor="middle" font-size="9">${f0((n-p)*1000)}</text>`; });
+  ag.y.pos.forEach((p,j)=>{ g+=`<line x1="${pad-24}" y1="${Y(p)}" x2="${Wd-pad+8}" y2="${Y(p)}" stroke="#9aa" stroke-width=".6" stroke-dasharray="9 3 2 3"/><circle cx="${pad-32}" cy="${Y(p)}" r="9" fill="#fff" stroke="#333"/><text x="${pad-32}" y="${Y(p)+4}" text-anchor="middle" font-size="10">${esc(ag.y.labels[j])}</text>`;
+    const n=ag.y.pos[j+1]; if(n!==undefined){ const cy=(Y(p)+Y(n))/2; g+=`<text x="${pad-13}" y="${cy}" text-anchor="middle" font-size="9" transform="rotate(-90 ${pad-13} ${cy})">${f0((n-p)*1000)}</text>`; } });
+  // column lines that are not on the question's grid: setting-out dimensions from the grid (bottom and right)
+  const off=(sp,ap)=>sp.some(v=>!ap.some(a=>Math.abs(a-v)<TOL));
+  if (off(gr.gx.pos,ag.x.pos)){ const u=[...new Set([...gr.gx.pos,...ag.x.pos].map(v=>+v.toFixed(3)))].sort((a,b)=>a-b); const yb=Y(y1)+26;
+    g+=`<g class="ly-sp"><line x1="${X(u[0])}" y1="${yb}" x2="${X(u.at(-1))}" y2="${yb}" stroke="#7a3" stroke-width=".8"/>${u.map(v=>`<line x1="${X(v)}" y1="${yb-4}" x2="${X(v)}" y2="${yb+4}" stroke="#7a3"/>`).join('')}${u.slice(1).map((v,i)=>`<text x="${(X(v)+X(u[i]))/2}" y="${yb-3}" text-anchor="middle" font-size="8.5" fill="#4a7a14">${f0((v-u[i])*1000)}</text>`).join('')}<text x="${X(u[0])}" y="${yb+14}" font-size="9" fill="#4a7a14">COLUMN SETTING-OUT FROM GRID (X)</text>${gr.gx.pos.filter(v=>!ag.x.pos.some(a=>Math.abs(a-v)<TOL)).map(v=>`<line x1="${X(v)}" y1="${Y(y0)}" x2="${X(v)}" y2="${yb}" stroke="#7a3" stroke-width=".5" stroke-dasharray="2 3"/>`).join('')}</g>`; }
+  if (off(gr.gy.pos,ag.y.pos)){ const u=[...new Set([...gr.gy.pos,...ag.y.pos].map(v=>+v.toFixed(3)))].sort((a,b)=>a-b); const xb=X(x1)+26;
+    g+=`<g class="ly-sp"><line x1="${xb}" y1="${Y(u[0])}" x2="${xb}" y2="${Y(u.at(-1))}" stroke="#7a3" stroke-width=".8"/>${u.map(v=>`<line x1="${xb-4}" y1="${Y(v)}" x2="${xb+4}" y2="${Y(v)}" stroke="#7a3"/>`).join('')}${u.slice(1).map((v,i)=>{ const cy=(Y(v)+Y(u[i]))/2; return `<text x="${xb-3}" y="${cy}" text-anchor="middle" font-size="8.5" fill="#4a7a14" transform="rotate(-90 ${xb-3} ${cy})">${f0((v-u[i])*1000)}</text>`; }).join('')}${gr.gy.pos.filter(v=>!ag.y.pos.some(a=>Math.abs(a-v)<TOL)).map(v=>`<line x1="${X(x0)}" y1="${Y(v)}" x2="${xb}" y2="${Y(v)}" stroke="#7a3" stroke-width=".5" stroke-dasharray="2 3"/>`).join('')}</g>`; }
   // beams: main beams along grid lines between columns below, secondaries per bay, members coloured
   const colsBelow=M.pts.filter(p=>k-1>=0&&M.present(M.col[k-1][p.id]));
   const inCore=(x,y)=>M.zones.some(z=>z.type==='core'&&((k-1>=0&&M.zAct(z,k-1))||(k<=nL-2&&M.zAct(z,k)))&&x>z.x1-0.01&&x<z.x2+0.01&&y>z.y1-0.01&&y<z.y2+0.01);
