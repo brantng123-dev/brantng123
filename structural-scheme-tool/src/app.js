@@ -169,7 +169,8 @@ function compile(W, wx, wy, lay){
   let sxl=xl, syl=yl;
   const gDef=(nm,g,s1,s2)=>({name:nm,xLabels:g.x.labels.join(','),xSp:dpos(g.x),yLabels:g.y.labels.join(','),ySp:dpos(g.y),ox:g.x.pos[0],oy:g.y.pos[0],s1,s2,cols:true});
   if (lay&&lay.sg){ const g=lay.sg; sxl=g.x.labels; syl=g.y.labels; grids[0]=gDef('M',g,'',''); }
-  if (lay&&lay.band){ const b=lay.band; sxl=b.lower.x.labels; syl=b.lower.y.labels; grids[0]=gDef('M',b.lower,names[0],names[b.u-1]); grids.splice(1,0,gDef('U',b.upper,names[b.u],names[ns-1])); }
+  if (lay&&lay.bands){ const bs=lay.bands; sxl=bs[0].g.x.labels; syl=bs[0].g.y.labels;
+    bs.forEach((b,i)=>{ const gd=gDef(i?'U'+(i>1?i:''):'M',b.g,names[b.from],names[(bs[i+1]?bs[i+1].from:ns)-1]); if(i===0) grids[0]=gd; else grids.splice(i,0,gd); }); }
   // transfer mode: columns above a column-free zone / void continue and are transferred at the zone roof
   if (lay&&lay.tmode==='keep') zones.filter(z=>z.type==='void'||z.type==='colfree').slice().forEach(z=>{ const i=names.indexOf(z.s2); const f=Math.max(i+1,lay.from??i+1); if(i>=0&&f<ns) zones.push({type:'keep',name:'Transfer over '+z.name,x1:z.x1,x2:z.x2,y1:z.y1,y2:z.y2,s1:names[f],s2:names[ns-1],head:'',svc:''}); });
   const S={title:W.title,grids,levels,zones,walls,columns:[],removed:[],specials:[],
@@ -248,7 +249,7 @@ function* layoutGen(W){
     const nCol=Ml.pts.filter(p=>Ml.col.some(row=>row[p.id]==='col'||row[p.id]==='edge')).length;
     // uniform column spacing is preferred: penalise (longest - shortest bay) / mean bay on every grid used
     const unif=pos=>{ const b=bays(pos); const m=b.reduce((a,c)=>a+c,0)/b.length; return b.length>1?(Math.max(...b)-Math.min(...b))/m:0; };
-    const gs=lay.band?[lay.band.lower.x,lay.band.lower.y,lay.band.upper.x,lay.band.upper.y]:lay.sg?[lay.sg.x,lay.sg.y]:[]; const u=gs.reduce((a,g)=>a+unif(g.pos),0);
+    const gs=lay.bands?lay.bands.flatMap(b=>[b.g.x,b.g.y]):lay.sg?[lay.sg.x,lay.sg.y]:[]; const u=gs.reduce((a,g)=>a+unif(g.pos),0);
     return {score:u*10+mx*0.2+Ml.members.length*0.05+nCol*0.02,u,mx,nMem:Ml.members.length,nCol}; };
   const all=ns?[...Array(ns).keys()]:[];
   const X=axisC('x',all), Y=axisC('y',all);
@@ -268,26 +269,42 @@ function* layoutGen(W){
   cands.filter(c=>c.arch).forEach(c=>pick.push(c));
   cands.filter(c=>!c.arch).sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ const k=`${c.nx}x${c.ny}|${c.tkey}`; if(!fam.has(k)) fam.set(k,c); });
   [...fam.values()].sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ if(pick.length<maxL) pick.push(c); });
-  // two-band layouts: a different grid above a transfer level
+  // two-band layouts: the lower band and the upper band each get their own generated grids, transfer at the boundary
   const gIdx=Math.max(0,names.findIndex(n=>normF(n)===normF(W.floors.ground||'G/F')));
   const splits=new Set(); M.zones.filter(z=>z.type==='void'||z.type==='colfree').forEach(z=>{ if(z.s2+1<ns&&z.s2+1>gIdx) splits.add(z.s2+1); });
-  C.lv.forEach((l,i)=>{ if(l.free&&i+1<ns&&i+1>gIdx) splits.add(i+1); });
-  const lowers=pick.filter(c=>c.tmode==='stop').slice(0,2); const bandC=[]; let bd=0;
-  // the upper band must carry at least two storeys, otherwise a separate grid is not worth a transfer
-  for (const u of [...splits].filter(u=>ns-u>=2).sort((a,b)=>a-b)){ const up=[]; for(let s=u;s<ns;s++) up.push(s); const UX=axisC('x',up,5), UY=axisC('y',up,5);
-    for (const lo of lowers){ const lg={x:lo.gx||{pos:archP.x,labels:archL.x},y:lo.gy||{pos:archP.y,labels:archL.y}};
-      const sub=(a,b)=>a.every(v=>b.some(w=>Math.abs(v-w)<TOL));
-      for (const ux of UX) for (const uy of UY){ if(sub(ux.pos,lg.x.pos)&&sub(uy.pos,lg.y.pos)) continue;
-        const lay={band:{u,lower:lg,upper:{x:ux,y:uy}},tmode:'stop',nx:lo.nx,ny:lo.ny,gx:lo.gx,gy:lo.gy,ux,uy,gkey:JSON.stringify([lg.x.pos,lg.y.pos,u,ux.pos,uy.pos])};
-        const sc=screen(lay); bd++; if(bd%8===0) yield {phase:'Screening two-band layouts',i:bd,n:bd+1};
-        if (sc) bandC.push({...lay,scr:sc}); } } }
-  const bf=new Map(); bandC.sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ const k=`${c.band.u}|${c.ux.pos.length}x${c.uy.pos.length}`; if(!bf.has(k)) bf.set(k,c); });
-  [...bf.values()].slice(0,Math.max(4,Math.round(maxL/4))).forEach(c=>pick.push(c));
+  C.lv.forEach((l,i)=>{ if(l.free&&i+1<ns&&i+1>=gIdx) splits.add(i+1); });   // plant / refuge floor (incl. basement plant just below ground)
+  if (gIdx>0) splits.add(gIdx);                                              // low-zone transfer at ground (e.g. car park grid below)
+  const bandC=[]; let bd=0; const sub=(a,b)=>a.every(v=>b.some(w=>Math.abs(v-w)<TOL));
+  const okSplits=[...splits].filter(u=>u>=1&&ns-u>=2).sort((a,b)=>a-b);
+  const nBand=okSplits.length*16*16;
+  for (const u of okSplits){ const lo=[], up=[]; for(let s=0;s<u;s++) lo.push(s); for(let s=u;s<ns;s++) up.push(s);
+    const LX=axisC('x',lo,4), LY=axisC('y',lo,4), UX=axisC('x',up,4), UY=axisC('y',up,4);
+    for (const lx of LX) for (const ly of LY) for (const ux of UX) for (const uy of UY){
+      if ((sub(ux.pos,lx.pos)&&sub(uy.pos,ly.pos))||(sub(lx.pos,ux.pos)&&sub(ly.pos,uy.pos))) continue;   // same grid in both bands → not two-band
+      const lay={band:{u,lower:{x:lx,y:ly},upper:{x:ux,y:uy}},bands:[{from:0,g:{x:lx,y:ly}},{from:u,g:{x:ux,y:uy}}],tmode:'stop',nx:lx.pos.length-1,ny:ly.pos.length-1,gx:lx,gy:ly,ux,uy,gkey:JSON.stringify([lx.pos,ly.pos,u,ux.pos,uy.pos])};
+      const sc=screen(lay); bd++; if(bd%16===0) yield {phase:'Screening two-band layouts',i:bd,n:nBand};
+      if (sc) bandC.push({...lay,scr:sc}); } }
+  const bf=new Map(); bandC.sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ const k=`${c.band.u}|${c.nx}x${c.ny}|${c.ux.pos.length}x${c.uy.pos.length}`; if(!bf.has(k)) bf.set(k,c); });
+  // keep a fair share for each transfer level
+  const byU=new Map(); [...bf.values()].forEach(c=>{ if(!byU.has(c.band.u)) byU.set(c.band.u,[]); byU.get(c.band.u).push(c); });
+  const per=Math.max(3,Math.round(maxL/2/Math.max(1,byU.size))); byU.forEach(list=>list.slice(0,per).forEach(c=>pick.push(c)));
+  // three bands: best lower grids of the lowest split, best upper grids of the highest split, generated grids in between
+  const tri=[]; const uniq=(arr,f)=>{ const m=new Map(); arr.forEach(c=>{ const k=f(c); if(!m.has(k)) m.set(k,c); }); return [...m.values()]; };
+  for (let i=0;i<okSplits.length;i++) for (let j=i+1;j<okSplits.length;j++){ const u1=okSplits[i], u2=okSplits[j]; if(u2-u1<1) continue;
+    const lows=uniq(bandC.filter(c=>c.band.u===u1),c=>JSON.stringify([c.gx.pos,c.gy.pos])).slice(0,3), tops=uniq(bandC.filter(c=>c.band.u===u2),c=>JSON.stringify([c.ux.pos,c.uy.pos])).slice(0,3);
+    const mid=[]; for(let s=u1;s<u2;s++) mid.push(s); const MX=axisC('x',mid,3), MY=axisC('y',mid,3);
+    for (const lo of lows) for (const tp of tops) for (const mx of MX) for (const my of MY){
+      const same=(a,b)=>sub(a.x.pos,b.x.pos)&&sub(a.y.pos,b.y.pos)&&sub(b.x.pos,a.x.pos)&&sub(b.y.pos,a.y.pos);
+      const L0={x:lo.gx,y:lo.gy}, M1={x:mx,y:my}, T2={x:tp.ux,y:tp.uy}; if(same(L0,M1)||same(M1,T2)) continue;
+      const lay={band:{u:u1,lower:L0,upper:M1},band3:{u:u2,top:T2},bands:[{from:0,g:L0},{from:u1,g:M1},{from:u2,g:T2}],tmode:'stop',nx:lo.nx,ny:lo.ny,gx:lo.gx,gy:lo.gy,ux:mx,uy:my,gkey:JSON.stringify([L0.x.pos,L0.y.pos,u1,mx.pos,my.pos,u2,T2.x.pos,T2.y.pos])};
+      const sc=screen(lay); bd++; if(bd%16===0) yield {phase:'Screening three-band layouts',i:bd,n:bd+1};
+      if (sc) tri.push({...lay,scr:sc}); } }
+  uniq(tri.sort((a,b)=>a.scr.score-b.scr.score),c=>`${c.band.u}|${c.band3.u}|${c.nx}x${c.ny}|${c.ux.pos.length}x${c.uy.pos.length}`).slice(0,Math.max(3,Math.round(maxL/5))).forEach(c=>pick.push(c));
   let nb=0; pick.forEach((l,i)=>{ l.id=l.arch&&l.tmode==='stop'&&!l.band?'A':l.arch&&!l.band?'B'+(nb++?nb:''):'L'+(i+1);
-    l.ttxt=l.band?`TWO-BAND GRID, TRANSFER AT ${names[l.band.u]}`:l.tmode==='keep'?`COLUMNS CONTINUE, TRANSFERRED AT ${[...new Set(M.zones.filter(z=>z.type==='void'||z.type==='colfree').map(z=>names[Math.max(z.s2+1,l.from)]).filter(Boolean))].join(' / ')}`:'COLUMNS STOP AT RESTRICTED ZONES (NO TRANSFER)';
+    l.ttxt=l.band3?`THREE-BAND GRID, TRANSFER AT ${names[l.band.u]} AND ${names[l.band3.u]}`:l.band?`TWO-BAND GRID, TRANSFER AT ${names[l.band.u]}`:l.tmode==='keep'?`COLUMNS CONTINUE, TRANSFERRED AT ${[...new Set(M.zones.filter(z=>z.type==='void'||z.type==='colfree').map(z=>names[Math.max(z.s2+1,l.from)]).filter(Boolean))].join(' / ')}`:'COLUMNS STOP AT RESTRICTED ZONES (NO TRANSFER)';
     const gx=l.gx||{txt:bayTxt(archP.x)}, gy=l.gy||{txt:bayTxt(archP.y)};
     l.bays={x:gx.txt||bayTxt(archP.x),y:gy.txt||bayTxt(archP.y)};
-    l.short=`${l.arch?'ARCHITECTURAL GRID':'GRID'} X ${l.bays.x}; Y ${l.bays.y}${l.band?`; FROM ${names[l.band.u]} UP: X ${l.ux.txt}; Y ${l.uy.txt} `:''}; ${l.ttxt}`; });
+    l.short=`${l.arch?'ARCHITECTURAL GRID':l.band?`BELOW ${names[l.band.u]}: GRID`:'GRID'} X ${l.bays.x}; Y ${l.bays.y}${l.band?`; ${l.band3?`${names[l.band.u]} ~ ${names[l.band3.u-1]}`:`FROM ${names[l.band.u]} UP`}: X ${l.ux.txt}; Y ${l.uy.txt} `:''}${l.band3?`; FROM ${names[l.band3.u]} UP: X ${l.band3.top.x.txt}; Y ${l.band3.top.y.txt} `:''}; ${l.ttxt}`; });
   return pick;
 }
 function* evalGen(W){
@@ -311,7 +328,7 @@ function* evalGen(W){
 }
 function evaluate(W){ const g=evalGen(W); let x; while(!(x=g.next()).done); return x.value; }
 const SYS_CAT={RC:'GIRDER',ST:'GIRDER',PT:'GIRDER',RCWALL:'STOREY-DEEP',STRUSS:'STOREY-DEEP',PLATE:'PLATE',INCL:'INCLINED COLUMN',HANG:'HANGER'};
-function layDiff(a,b){ if(a.gkey===b.gkey) return false; if(!!a.band!==!!b.band) return true; if(a.nx!==b.nx||a.ny!==b.ny) return true;
+function layDiff(a,b){ if(a.gkey===b.gkey) return false; if(!!a.band!==!!b.band||!!a.band3!==!!b.band3) return true; if(a.band3&&b.band3&&a.band3.u!==b.band3.u) return true; if(a.nx!==b.nx||a.ny!==b.ny) return true;
   const mb=l=>[l.gx?l.gx.maxB:10,l.gy?l.gy.maxB:10]; const A=mb(a), B=mb(b); if(Math.abs(A[0]-B[0])>=1.5||Math.abs(A[1]-B[1])>=1.5) return true;
   if (a.band&&b.band&&(a.band.u!==b.band.u||a.ux.pos.length!==b.ux.pos.length||a.uy.pos.length!==b.uy.pos.length)) return true; return false; }
 function sigOf(e){ const tr=[...new Set([...e.R.used].map(u=>SYS_CAT[u]).filter(Boolean))].sort(); return {lay:e.lay.gkey,tm:e.R.checks.some(c=>c.cat==='Transfer'||c.cat==='Transfer plate'||c.cat==='Inclined column'||c.cat==='Hanger + truss')?'TRANSFER':'NO TRANSFER',floor:e.sc.floor==='flat'?'FLAT SLAB':'BEAM AND SLAB',tr:tr.join(' + ')||'NONE'}; }
@@ -336,7 +353,7 @@ function aspects(a,b){
     {k:'lvl',w:2,on:ta&&tb&&!sameSet(la,lb),txt:'Transfer floor'},
     {k:'type',w:2,on:ta&&tb&&!sameSet(ya,yb),txt:'Transfer type'},
     {k:'span',w:1,on:Math.abs(maxBay(a)-maxBay(b))>=3,txt:'Max. span'}];
-  out.forEach(x=>{ x.detail=x.k==='grid'?`${a.lay.bays.x} × ${a.lay.bays.y}${a.lay.band?' (two-band)':''} | ${b.lay.bays.x} × ${b.lay.bays.y}${b.lay.band?' (two-band)':''}`:
+  out.forEach(x=>{ x.detail=x.k==='grid'?`${a.lay.bays.x} × ${a.lay.bays.y}${a.lay.band3?' (three-band)':a.lay.band?' (two-band)':''} | ${b.lay.bays.x} × ${b.lay.bays.y}${b.lay.band3?' (three-band)':b.lay.band?' (two-band)':''}`:
     x.k==='tr'?`${ta?'transfer':'no transfer'} | ${tb?'transfer':'no transfer'}`:x.k==='lvl'?`${[...la].join(', ')||'—'} | ${[...lb].join(', ')||'—'}`:
     x.k==='type'?`${[...ya].map(t=>T_NAME[t]).join(', ')||'—'} | ${[...yb].map(t=>T_NAME[t]).join(', ')||'—'}`:`${f1(maxBay(a))} m | ${f1(maxBay(b))} m`; });
   return out;
@@ -849,7 +866,7 @@ function renderOut(){
       const res=!e.R.applicable?'<span class="na">— NOT APPLICABLE</span>':`${V_ICON[e.R.worst]} ${V_TXT[e.R.worst]}`;
       return `<tr data-id="${e.sc.id}" class="${view.scheme===e.sc.id?'sel':''} ${!e.R.applicable?'dim':''}"><td>${e.sc.id}</td><td>${esc(e.sc.name)}${e.sc.note?`<div class="note">${esc(e.sc.note)}</div>`:''}</td><td>${e.lay.id}</td><td style="white-space:nowrap">${res}</td><td>${!e.R.applicable?esc(naReason(e)):worst.map(c=>`${esc(c.item)} — ${esc(c.where)}: ${esc(c.calc)}`).join('<br>')||'—'}</td><td style="white-space:nowrap">${cols.map(c=>esc(c.item.replace('COLUMN ',''))).join('<br>')}</td></tr>`; };
     const app=order.filter(e=>e.R.applicable&&e.R.worst!=='fail'), bad=order.filter(e=>e.R.applicable&&e.R.worst==='fail'), na=order.filter(e=>!e.R.applicable);
-    html+=`<div class="card"><h2>Column layouts with viable schemes (${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).length} of ${RES.lays.length} checked)</h2><div class="hint">Generated from the building length, the minimum column spacing, end cantilevers and the core / restricted-zone edges, then screened (spacing, cantilever, spans). Only the most varied layouts are fully checked (setting “Max. column layouts”).</div><details ${view.layOpen?'open':''} id="layDet"><summary>Show the layout list</summary><table class="mini"><tr><th></th><th>Grid X (bays)</th><th>Grid Y (bays)</th><th>Above transfer level</th><th>Columns over restricted zones</th><th>Viable schemes</th></tr>${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).map(l=>{ const es=L.filter(e=>e.lay===l&&feasibleE(e)); return `<tr><td><b>${l.id}</b></td><td>${esc(l.bays.x)}${l.arch?' (as given)':''}</td><td>${esc(l.bays.y)}</td><td>${l.band?`from ${esc(L[0].C.names[l.band.u])}: X ${esc(l.ux.txt)}; Y ${esc(l.uy.txt)}`:'—'}</td><td>${esc(l.ttxt)}</td><td>${es.map(e=>`<a href="#" data-go="${e.sc.id}">${e.sc.base}</a> ${V_ICON[e.R.worst]}`).join(', ')||'<span class="ng">none</span>'}</td></tr>`; }).join('')}</table></details></div>`;
+    html+=`<div class="card"><h2>Column layouts with viable schemes (${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).length} of ${RES.lays.length} checked)</h2><div class="hint">Generated from the building length, the minimum column spacing, end cantilevers and the core / restricted-zone edges, then screened (spacing, cantilever, spans). Only the most varied layouts are fully checked (setting “Max. column layouts”).</div><details ${view.layOpen?'open':''} id="layDet"><summary>Show the layout list</summary><table class="mini"><tr><th></th><th>Grid X (bays)</th><th>Grid Y (bays)</th><th>Above transfer level</th><th>Columns over restricted zones</th><th>Viable schemes</th></tr>${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).map(l=>{ const es=L.filter(e=>e.lay===l&&feasibleE(e)); return `<tr><td><b>${l.id}</b></td><td>${esc(l.bays.x)}${l.arch?' (as given)':''}</td><td>${esc(l.bays.y)}</td><td>${l.band?`from ${esc(L[0].C.names[l.band.u])}: X ${esc(l.ux.txt)}; Y ${esc(l.uy.txt)}`:'—'}${l.band3?`<br>from ${esc(L[0].C.names[l.band3.u])}: X ${esc(l.band3.top.x.txt)}; Y ${esc(l.band3.top.y.txt)}`:''}</td><td>${esc(l.ttxt)}</td><td>${es.map(e=>`<a href="#" data-go="${e.sc.id}">${e.sc.base}</a> ${V_ICON[e.R.worst]}`).join(', ')||'<span class="ng">none</span>'}</td></tr>`; }).join('')}</table></details></div>`;
     const rp=recPair(L)||{}; const shown=e=>e.R.worst==='pass'||view.showMarg;
     const pickRow=(e,role)=>{ const cols=e.R.checks.filter(c=>c.cat==='Column').map(c=>esc(c.item.replace('COLUMN ','').replace(' (ENCASED)',''))).join(', '); const on=(role==='rc'?rp.a:rp.b)===e;
       const dd=role==='st'&&rp.a?distinctBy(rp.a,e):role==='rc'&&rp.b?distinctBy(e,rp.b):[];
