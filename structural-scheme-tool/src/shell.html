@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scheme Generator</title>
+<style>
+:root{--bg:#eef0f3;--card:#fff;--ink:#16191f;--mute:#667;--line:#d5d9e0;--acc:#1f4fd1;--pass:#137333;--marg:#b06000;--fail:#c5221f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:13.5px/1.45 -apple-system,"Helvetica Neue",Arial,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:8px 16px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+header h1{font-size:16px;margin:0 10px 0 0}
+header input#title{font-weight:600;width:260px}
+button,input,select{font:inherit;color:inherit}
+button{background:#fff;border:1px solid var(--line);border-radius:6px;padding:3px 9px;cursor:pointer}
+button:hover{border-color:var(--acc)}
+input,select{border:1px solid var(--line);border-radius:5px;padding:2px 5px;background:#fff}
+main{max-width:1180px;margin:0 auto;padding:12px 16px 60px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin-bottom:12px}
+h2{font-size:15px;margin:0 0 8px}
+h3{font-size:13px;margin:14px 0 6px;text-transform:uppercase}
+.hint{color:var(--mute);font-size:12.5px;margin-bottom:8px}
+.note{color:var(--mute);font-size:12px}
+code{background:#f1f3f6;padding:0 4px;border-radius:3px}
+.row{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:flex-end;margin-bottom:8px}
+.row label{display:flex;flex-direction:column;font-size:12px;color:var(--mute)}
+.steptabs{display:flex;gap:4px;flex-wrap:wrap}
+.steptabs button{border-radius:6px 6px 0 0;border-bottom:none}
+.steptabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid var(--line);padding:3px 6px;text-align:left;vertical-align:top;font-size:12.5px}
+th{background:#f4f5f8;font-weight:600}
+table.ed td{padding:2px 3px}
+table.ed button{padding:1px 6px;margin-left:2px}
+.err{background:#fde8e8;color:#8a1c1c;border-radius:6px;padding:5px 9px;margin-bottom:6px}
+.cat tr[data-id]{cursor:pointer}.cat tr[data-id]:hover{background:#f3f6ff}.cat tr.sel{background:#e7eeff}.cat tr.dim{color:#999}
+.na{color:#888}
+.u{text-transform:uppercase}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11.5px;margin:4px 0 8px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.planbox{display:flex;gap:10px;align-items:flex-start;margin:6px 0 16px;break-inside:avoid}
+.planimg{flex:1;min-width:0}
+.ptitle{text-align:center;font-weight:700;text-decoration:underline;font-size:12.5px;margin-top:2px}
+.key{font-size:10.5px;border:1px solid var(--line);min-width:64px;text-align:center;line-height:1.35}
+.v-pass td:first-child{color:var(--pass)}.v-marg{background:#fff7e6}.v-fail{background:#fdecec}
+svg text{font-family:-apple-system,"Helvetica Neue",Arial,sans-serif}
+/* editable report */
+.rep{font:13px/1.55 ui-monospace,Menlo,monospace;white-space:pre-wrap}
+.rep .blk{margin:0 0 12px;padding:6px 8px;border-left:3px solid var(--line)}
+.rep .blk.pass{border-color:var(--pass)}.rep .blk.marg{border-color:var(--marg);background:#fffaf0}.rep .blk.fail{border-color:var(--fail);background:#fff5f5}
+.rep input.cell{width:auto;min-width:3ch;font:inherit;padding:0 3px;border:none;border-bottom:1px solid #f0c000;background:#fff8d6;text-align:right;border-radius:0}
+.rep input.cell.ovr{background:#ffe08a;font-weight:700}
+.rep .res{font-weight:700}
+.rep .ok{color:var(--pass);font-weight:700}.rep .ng{color:var(--fail);font-weight:700}.rep .mg{color:var(--marg);font-weight:700}
+.rep [contenteditable]{outline:none;border-bottom:1px dashed transparent}.rep [contenteditable]:hover{border-bottom-color:#bbb}.rep [contenteditable]:focus{background:#f3f7ff}
+@media print{header,.steps,#stepsWrap,.noprint{display:none!important}body{background:#fff}.card{border:none;padding:0}.rep input.cell{background:none;border:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Scheme Generator</h1>
+  <input id="title" title="Question title">
+  <button data-ex="q2">Example: 2012 Q2</button>
+  <button data-ex="blank">New</button>
+  <button id="bSave">Save</button><button id="bOpen">Open</button><input type="file" id="fOpen" accept=".json" hidden>
+  <button id="bPrint">Print</button>
+</header>
+<main>
+  <div id="stepsWrap" class="steps"><div id="steps"></div></div>
+  <div id="out"></div>
+</main>
+<script>
+'use strict';
+__ENGINE_HEADER__
+__ENGINE__
+__APP__
+initApp();
+</script>
+</body>
+</html>
