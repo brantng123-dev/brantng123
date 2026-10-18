@@ -517,14 +517,14 @@ const DEF_SET = {
   tol:15, step:250, minSize:500,
   slabRC:150, slabComp:125, sdSlab:26, sdSec:23, sdMain:26, sdCant:7, cantRC:5, cantSt:7,
   kRC:20, kSt:17.8, ef:1.25, tf:1.5, nRC:27.7, nComp:39.95, fcuB:45, py:355, sdPT:20, plateRatio:6, wallRatio:6, inclMax:0.25,
-  slenderBraced:15
+  slenderBraced:15, colGroups:3
 };
 const SET_LABELS = {
   tol:'"Slightly off" tolerance (%)', step:'Size step (mm)', minSize:'Min. column size (mm)',
   slabRC:'RC slab thickness (mm)', slabComp:'Composite slab thickness (mm)', sdSlab:'Slab S/D limit', sdSec:'Secondary beam S/D (×10/L if L>10)', sdMain:'Main / transfer beam S/D (×10/L if L>10)', sdCant:'Cantilever S/D limit',
   cantRC:'RC cantilever max. span (m)', cantSt:'Steel cantilever max. span (m)',
   kRC:'RC load per floor (kPa)', kSt:'Steel WULS per floor (kPa)', ef:'Elastic factor (columns)', tf:'Transfer factor', nRC:'RC column N/Ac (fcu60, 2%)', nComp:'Composite column N/Ac', fcuB:'Beam fcu (MPa)', py:'Steel py (MPa)',
-  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)'
+  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', colGroups:'Column types: 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column'
 };
 const KINDS = [
   ['core','Core wall (rigid support)'],
@@ -710,7 +710,8 @@ function evaluate(W){
 
 function assess(W,sc,C,M){
   const st=W.set, L=M.L, nL=M.nL, checks=[], tol=st.tol, step=st.step/1000;
-  const add=(c)=>{ c.v=verdictOf(c.ratio,tol); checks.push(c); return c; };
+  // geometry / code limits are strict (pass or fail); only depth / thickness may be "slightly off"
+  const add=(c)=>{ c.v=c.strict?(c.ratio<=1+1e-9?'pass':'fail'):verdictOf(c.ratio,tol); checks.push(c); return c; };
   const q=sc.mat==='rc'?st.kRC:st.kSt;
   const zoneAt=k=>M.depth[k];
   /* --- long-span / transfer members --- */
@@ -742,7 +743,7 @@ function assess(W,sc,C,M){
     const t=roundUp(li.plate.maxSpan/st.plateRatio,step); const have=li.plate.inFree?li.plate.H:li.plate.avail; const useH=Math.max(li.plate.avail,li.plate.H||0);
     add({cat:'Transfer plate',where:`${L[li.k].name}`,item:`TRANSFER PLATE ${f0(t*1000)} THK.`,calc:`max. span ${f1(li.plate.maxSpan)} m / ${st.plateRatio} = ${f0(li.plate.maxSpan/st.plateRatio*1000)} → ${f0(t*1000)}`,need:t,have:useH,ratio:t/useH,fix:'Thicken locally / use plant floor depth'}); used.add('PLATE'); } });
   const inclPts=new Set();
-  if (sc.sys.includes('INCL')) M.tpoints.forEach(t=>{ if(t.carries&&t.incl){ const r=t.incl.ratio/st.inclMax; const c=add({cat:'Inclined column',where:`${L[t.k].name} ${t.label}`,item:`INCLINED COLUMN ${t.label} → ${t.incl.label}`,calc:`offset ${f2(t.incl.d)} / height ${f2(t.incl.h)} = ${f2(t.incl.ratio)} ≤ ${st.inclMax}`,need:t.incl.ratio,have:st.inclMax,ratio:r,fix:'Spread the slope over two storeys / tie beams for kick-out force'}); if(c.v!=='fail'){ inclPts.add(t.k+'|'+t.key); used.add('INCL'); } } });
+  if (sc.sys.includes('INCL')) M.tpoints.forEach(t=>{ if(t.carries&&t.incl){ const r=t.incl.ratio/st.inclMax; const c=add({cat:'Inclined column',where:`${L[t.k].name} ${t.label}`,item:`INCLINED COLUMN ${t.label} → ${t.incl.label}`,calc:`offset ${f2(t.incl.d)} / height ${f2(t.incl.h)} = ${f2(t.incl.ratio)} ≤ ${st.inclMax}`,need:t.incl.ratio,have:st.inclMax,ratio:r,strict:true,fix:'Spread the slope over two storeys / tie beams for kick-out force'}); if(c.v!=='fail'){ inclPts.add(t.k+'|'+t.key); used.add('INCL'); } } });
   const hangPts=new Set();
   if (sc.sys.includes('HANG')) M.tpoints.forEach(t=>{ if(t.hang){ const r=t.hang.req/t.hang.H; const c=add({cat:'Hanger + truss',where:`${L[t.k].name} ${t.label}`,item:`HANGER ${t.label} TO TRUSS IN ${L[t.hang.f].name}`,calc:`truss span ${f1(t.hang.span)} m, depth ${f1(t.hang.H)} m`,need:t.hang.req,have:t.hang.H,ratio:r,fix:'Deeper truss / shorter span'}); if(c.v!=='fail'){ hangPts.add(t.k+'|'+t.key); used.add('HANG'); } } });
   let gN=0;
@@ -809,13 +810,24 @@ function assess(W,sc,C,M){
       const side=Math.max(st.minSize/1000,roundUp(Math.sqrt(load*1000/nC)/1000,step));
       colSize[p.id][s]={load,side,area,nfl};
     }
-    const mx=Math.max(0,...colSize[p.id].filter(Boolean).map(c=>c.side));
-    const ix=gx.pos.findIndex(v=>Math.abs(v-p.x)<TOL), iy=gy.pos.findIndex(v=>Math.abs(v-p.y)<TOL);
-    if (ix>=0) lineW.x[ix]=Math.max(lineW.x[ix]||0,mx); if (iy>=0) lineW.y[iy]=Math.max(lineW.y[iy]||0,mx);
   });
-  // critical column
-  let crit=null; pts.forEach(p=>(colSize[p.id]||[]).forEach((c,s)=>{ if(c&&(!crit||c.load>crit.load)) crit={...c,p,s}; }));
-  if (crit){ const h=L[crit.s].h; add({cat:'Column',where:`${crit.p.label} at ${L[crit.s].name}`,item:`COLUMN C1 ${f0(crit.side*1000)} x ${f0(crit.side*1000)}${sc.mat==='st'?' (ENCASED)':''}`,calc:`P = ${f0(crit.load)} kN; Ac = P / ${nC} = ${f0(crit.load*1000/nC)} mm2 → ${f0(crit.side*1000)}; H/D = ${f1(h/crit.side)} < ${st.slenderBraced}`,need:h/crit.side,have:st.slenderBraced,ratio:h/crit.side/st.slenderBraced,fix:'Larger column'}); }
+  // column types: C1 interior, C2 edge / corner, C3 supporting transfer / long-span members (setting colGroups)
+  const supportLabels=new Set(M.members.flatMap(m=>m.ends));
+  const groups={};
+  pts.forEach(p=>{ const cs=(colSize[p.id]||[]).filter(Boolean); if(!cs.length) return;
+    let s0=-1, mxl=-1; colSize[p.id].forEach((c,s)=>{ if(c&&c.load>mxl){ mxl=c.load; s0=s; } });
+    const [a,b]=neighbours(s0,p,'x'), [c,d]=neighbours(s0,p,'y'); const edge=[a,b,c,d].some(v=>v===null);
+    const mode=Math.round(num(st.colGroups)??3);
+    const g=mode===0?'C'+p.label:mode===1?'C1':(mode===3&&supportLabels.has(p.label))?'C3':edge?'C2':'C1';
+    p.ctype=g; const G=groups[g]||(groups[g]={id:g,side:0,crit:null,count:0,edge,desc:g==='C1'&&mode!==1?'INTERIOR':g==='C2'?'EDGE / CORNER':g==='C3'?'SUPPORTING TRANSFER / LONG-SPAN':''});
+    G.count++; colSize[p.id].forEach((c,s)=>{ if(!c) return; G.side=Math.max(G.side,c.side); if(!G.crit||c.load>G.crit.load) G.crit={...c,p,s}; });
+  });
+  pts.forEach(p=>{ const G=groups[p.ctype]; if(!G) return; colSize[p.id].forEach(c=>{ if(c) c.side=G.side; });
+    const ix=gx.pos.findIndex(v=>Math.abs(v-p.x)<TOL), iy=gy.pos.findIndex(v=>Math.abs(v-p.y)<TOL);
+    if (ix>=0) lineW.x[ix]=Math.max(lineW.x[ix]||0,G.side); if (iy>=0) lineW.y[iy]=Math.max(lineW.y[iy]||0,G.side); });
+  let crit=null;
+  Object.values(groups).sort((a,b)=>a.id.localeCompare(b.id)).forEach(G=>{ const c=G.crit; if(!c) return; if(!crit||c.load>crit.load) crit={...c,side:G.side};
+    const h=L[c.s].h; add({cat:'Column',where:`${G.id}${G.desc?' '+G.desc:''} — governing ${c.p.label} at ${L[c.s].name} (${G.count} nos.)`,item:`COLUMN ${G.id} ${f0(G.side*1000)} x ${f0(G.side*1000)}${sc.mat==='st'?' (ENCASED)':''}`,calc:`P = ${f0(c.load)} kN; Ac = P / ${nC} = ${f0(c.load*1000/nC)} mm2 → ${f0(G.side*1000)}; H/D = ${f1(h/G.side)} < ${st.slenderBraced}`,need:h/G.side,have:st.slenderBraced,ratio:h/G.side/st.slenderBraced,strict:true,fix:''}); });
   // offsets: column faces must not enter restricted zones
   const offsets={};
   M.zones.filter(z=>z.type==='colfree'||z.type==='void').forEach(z=>{
@@ -826,7 +838,7 @@ function assess(W,sc,C,M){
         if (Math.abs(p.y-z.y1)<TOL) o.dy=Math.min(o.dy,-h); else if (Math.abs(p.y-z.y2)<TOL) o.dy=Math.max(o.dy,h);
         if (!o.dx&&!o.dy){ o.clash=true; } o.side=Math.max(o.side,c.side); offsets[p.id]=o; } } });
   });
-  Object.values(offsets).forEach(o=>{ if(o.clash) add({cat:'Column clash',where:o.p.label,item:`COLUMN ${o.p.label} INSIDE ${o.z.name}`,calc:'column face enters restricted zone',need:2,have:1,ratio:2,fix:'Move grid / remove column'});
+  Object.values(offsets).forEach(o=>{ if(o.clash) add({cat:'Column clash',where:o.p.label,item:`COLUMN ${o.p.label} INSIDE ${o.z.name}`,calc:'column face enters restricted zone',need:2,have:1,ratio:2,strict:true,fix:'Move grid / remove column'});
     else add({cat:'Column offset',where:o.p.label,item:`COLUMN ${o.p.label} OFFSET ${o.dx?`${o.dx>0?'+':''}${f0(o.dx*1000)} mm X `:''}${o.dy?`${o.dy>0?'+':''}${f0(o.dy*1000)} mm Y`:''}`,calc:`face aligned to edge of ${o.z.name}`,need:0,have:1,ratio:0,fix:''}); });
   // spacing rule per floor type
   (W.types||[]).forEach((t,ti)=>{ const minSp=num(t.minSp); if(!minSp) return; let worst=null;
@@ -838,7 +850,7 @@ function assess(W,sc,C,M){
           const cc=(ax==='x'?b.x-a.x:b.y-a.y)+ob-oa; const wa=colSize[a.id][s]?.side||0, wb=colSize[b.id][s]?.side||0;
           const val=t.spType==='e'?cc-wa/2-wb/2:cc; if(!worst||val<worst.val) worst={val,a,b,s,cc}; } });
       }); });
-    if (worst) add({cat:'Column spacing',where:t.name,item:`MIN. ${t.spType==='e'?'CLEAR':'C/C'} SPACING ${f2(worst.val)} m (${worst.a.label}–${worst.b.label})`,calc:`required ≥ ${minSp} m ${t.spType==='e'?'clear':'c/c'}`,need:minSp,have:worst.val,ratio:minSp/worst.val,fix:'Adjust grid / smaller column'});
+    if (worst) add({cat:'Column spacing',where:t.name,item:`MIN. ${t.spType==='e'?'CLEAR':'C/C'} SPACING ${f2(worst.val)} m (${worst.a.label}–${worst.b.label})`,calc:`required ≥ ${minSp} m ${t.spType==='e'?'clear':'c/c'}`,need:minSp,have:worst.val,ratio:minSp/worst.val,strict:true,fix:''});
   });
   /* --- cantilevers at slab edges --- */
   const cants=[];
@@ -849,10 +861,11 @@ function assess(W,sc,C,M){
     [['W',Math.min(...xs)-fp.x1],['E',fp.x2-Math.max(...xs)],['N',Math.min(...ys)-fp.y1],['S',fp.y2-Math.max(...ys)]].forEach(([side,len])=>{
       if (len<0.3) return; const lim=sc.mat==='rc'?st.cantRC:st.cantSt; const D=roundUp(len/st.sdCant,step);
       cants.push({type:t.name,side,len,D});
-      add({cat:'Cantilever',where:`${t.name} (${side} edge)`,item:`CANTILEVER BEAM CB ${f0(D*1000)} DEEP, SPAN ${f2(len)} m`,calc:`span ${f2(len)} ≤ ${lim} m; S/D ≤ ${st.sdCant} → D ≥ ${f0(len/st.sdCant*1000)}; zone ${f0(zone*1000)}`,need:Math.max(len/lim,D/zone),have:1,ratio:Math.max(len/lim,D/zone),fix:'Back-span / tie-down; move column outward'});
+      add({cat:'Cantilever span',where:`${t.name} (${side} edge)`,item:`CANTILEVER SPAN ${f2(len)} m`,calc:`span ${f2(len)} m ≤ max. ${lim} m (${sc.mat==='rc'?'RC':'steel'})`,need:len,have:lim,ratio:len/lim,strict:true,fix:''});
+      add({cat:'Cantilever',where:`${t.name} (${side} edge)`,item:`CANTILEVER BEAM CB ${f0(D*1000)} DEEP`,calc:`S/D ≤ ${st.sdCant} → D ≥ ${f0(len/st.sdCant*1000)}; zone ${f0(zone*1000)}`,need:D,have:zone,ratio:D/zone,fix:'Wider beam / back-span tie-down'});
     }); });
   const worst=checks.reduce((w,c)=>V_RANK[c.v]>V_RANK[w]?c.v:w,'pass');
-  return {checks,ch,used,applicable,typ,colSize,offsets,lineW,cants,worst,crit};
+  return {checks,ch,used,applicable,typ,colSize,offsets,lineW,cants,worst,crit,groups};
 }
 
 /* ---------- Output helpers ---------- */
@@ -922,6 +935,7 @@ function planSVG2(E,k,grp){
     if (a&&b) g+=`<rect x="${x-side/2}" y="${y-side/2}" width="${side}" height="${side}" fill="#fff" stroke="#111" stroke-width="1.3"/><path d="M${x-side/2} ${y-side/2}L${x+side/2} ${y+side/2}M${x+side/2} ${y-side/2}L${x-side/2} ${y+side/2}" stroke="#111"/>`;
     else if (b) g+=`<rect x="${x-side/2}" y="${y-side/2}" width="${side}" height="${side}" fill="#fff" stroke="#111" stroke-dasharray="2.5 1.5"/>`;
     else g+=`<rect x="${x-side/2}" y="${y-side/2}" width="${side}" height="${side}" fill="url(#${id})" stroke="#111"/>`;
+    if (p.ctype) g+=`<text x="${x+side/2+2}" y="${y-side/2-1}" font-size="7.5" fill="#444">${p.ctype}</text>`;
   });
   const title=`${M.L[grp.k1].name}${grp.k2>grp.k1?' ~ '+M.L[grp.k2].name:''} FRAMING PLAN`;
   return {svg:`<svg viewBox="0 0 ${Wd} ${H}" width="100%" style="max-width:${Wd}px">${g}</svg>`,title};
@@ -1016,10 +1030,10 @@ function renderOut(){
   <tr><td>3) IMPOSED LOAD (kPa)</td><td>${uses.map(u=>`${esc(u)}: ${IMPOSED[u]??'—'}`).join('; ')}</td></tr></table></div>`;
   // catalogue
   const order=L.slice().sort((a,b)=>(b.R.applicable-a.R.applicable)||V_RANK[a.R.worst]-V_RANK[b.R.worst]);
-  html+=`<div class="card"><h2>Scheme catalogue (all schemes)</h2><div class="hint">✅ pass &nbsp; ⚠️ slightly off (within ${W.set.tol}%, adjust sizes) &nbsp; ❌ not feasible &nbsp; — not applicable (system not needed in this building). Click a scheme to see its framing plans.</div><table class="mini cat"><tr><th></th><th>Scheme</th><th>Result</th><th>Governing issue</th><th>Column C1</th></tr>
-  ${order.map(e=>{ const worst=e.R.checks.filter(c=>c.v===e.R.worst&&e.R.worst!=='pass').slice(0,2); const col=e.R.checks.find(c=>c.cat==='Column');
+  html+=`<div class="card"><h2>Scheme catalogue (all schemes)</h2><div class="hint">✅ pass &nbsp; ⚠️ slightly off (within ${W.set.tol}%, adjust sizes) &nbsp; ❌ not feasible &nbsp; — not applicable (system not needed in this building). Click a scheme to see its framing plans.</div><table class="mini cat"><tr><th></th><th>Scheme</th><th>Result</th><th>Governing issue</th><th>Column types</th></tr>
+  ${order.map(e=>{ const worst=e.R.checks.filter(c=>c.v===e.R.worst&&e.R.worst!=='pass').slice(0,2); const cols=e.R.checks.filter(c=>c.cat==='Column');
     const res=!e.R.applicable?'<span class="na">— NOT APPLICABLE</span>':`${V_ICON[e.R.worst]} ${V_TXT[e.R.worst]}`;
-    return `<tr data-id="${e.sc.id}" class="${view.scheme===e.sc.id?'sel':''} ${!e.R.applicable?'dim':''}"><td>${e.sc.id}</td><td>${esc(e.sc.name)}${e.sc.note?`<div class="note">${esc(e.sc.note)}</div>`:''}</td><td style="white-space:nowrap">${res}</td><td>${!e.R.applicable?esc(`No ${e.sc.must==='PLATE'?'transfer level':e.sc.must==='INCL'?'small offset columns':e.sc.must==='HANG'?'floor that can be hung':e.sc.must==='STRUSS'?'member needing a storey-deep truss':'member needing it'} in this building`):worst.map(c=>`${esc(c.item)} — ${esc(c.where)}: ${esc(c.calc)}`).join('<br>')||'—'}</td><td>${col?esc(col.item.replace('COLUMN C1 ','')):''}</td></tr>`; }).join('')}</table></div>`;
+    return `<tr data-id="${e.sc.id}" class="${view.scheme===e.sc.id?'sel':''} ${!e.R.applicable?'dim':''}"><td>${e.sc.id}</td><td>${esc(e.sc.name)}${e.sc.note?`<div class="note">${esc(e.sc.note)}</div>`:''}</td><td style="white-space:nowrap">${res}</td><td>${!e.R.applicable?esc(`No ${e.sc.must==='PLATE'?'transfer level':e.sc.must==='INCL'?'small offset columns':e.sc.must==='HANG'?'floor that can be hung':e.sc.must==='STRUSS'?'member needing a storey-deep truss':'member needing it'} in this building`):worst.map(c=>`${esc(c.item)} — ${esc(c.where)}: ${esc(c.calc)}`).join('<br>')||'—'}</td><td style="white-space:nowrap">${cols.map(c=>esc(c.item.replace('COLUMN ',''))).join('<br>')}</td></tr>`; }).join('')}</table></div>`;
   const E=L.find(e=>e.sc.id===view.scheme)||order[0]; view.scheme=E.sc.id;
   html+=schemeHTML(E);
   h.innerHTML=html;
@@ -1082,7 +1096,8 @@ function reportBlocks(E){
     else if (c.sys==='ST') B.push({id:'g_'+c.tag,kind:'stg',title:ttl,v:{L:m.span,w:c.wTrib,q:st.kSt,ll:5,P:Math.round(c.P),Z:mm(m.avail)}});
   });
   const plate=R.checks.find(c=>c.cat==='Transfer plate'); if (plate) B.push({id:'plate',kind:'plate',title:`TRANSFER PLATE (${plate.where})`,v:{L:mm(plate.need*W.set.plateRatio),t:mm(plate.need),Z:mm(plate.have)}});
-  if (R.crit){ const c=R.crit; B.push({id:'col',kind:'col',title:`COLUMN C1 (${c.p.label}, ${E.M.L[c.s].name})`,v:{n:c.nfl,A:Math.round(c.area/Math.max(1,c.nfl)),q:sc.mat==='rc'?st.kRC:st.kSt,ef:st.ef,k:sc.mat==='rc'?st.nRC:st.nComp,side:mm(c.side),H:mm(E.M.L[c.s].h)}}); }
+  Object.values(R.groups||{}).sort((a,b)=>a.id.localeCompare(b.id)).forEach(G=>{ const c=G.crit; if(!c) return;
+    B.push({id:'col_'+G.id,kind:'col',title:`COLUMN ${G.id}${G.desc?' — '+G.desc:''} (${G.count} NOS., GOVERNING ${c.p.label} AT ${E.M.L[c.s].name})`,v:{n:c.nfl,A:Math.round(c.area/Math.max(1,c.nfl)),q:sc.mat==='rc'?st.kRC:st.kSt,ef:st.ef,k:sc.mat==='rc'?st.nRC:st.nComp,side:mm(G.side),H:mm(E.M.L[c.s].h),P:Math.round(c.load-(sc.mat==='rc'?st.kRC:st.kSt)*c.area*st.ef)}}); });
   // apply saved overrides
   const ov=((W.ovr||{})[sc.id])||{};
   B.forEach(b=>{ b.def={...b.v}; Object.assign(b.v,ov[b.id]||{}); b.ovr=ov[b.id]||{}; });
@@ -1113,8 +1128,8 @@ function calcBlock(b){
     case 'smb': { const Lm=n(v.L), np=Math.max(1,Math.round(n(v.n))), k1=[0,3.66,3.12,2.9,2.77][Math.min(np,4)], k2=[0,0.25,0.333,0.5,0.6][Math.min(np,4)], P=n(v.w)*n(v.ls)*n(v.Lsb), PL=n(v.ll)*n(v.ls)*n(v.Lsb), Mreq=k2*P*Lm/1.6, Ireq=np*k1*PL*Lm*Lm/2.8, sec=pickSec(UB355,Mreq,Ireq); const D=sec?secDepth(sec[0])*1000:Lm*1000/15; ratio=D/n(v.Z);
       L=[`SPAN ${I('L')} m, ${I('n')} POINT LOADS FROM SB (SB SPAN ${I('Lsb')} m, SLAB SPAN ${I('ls')} m), WULS ${I('w')} kPa, LL ${I('ll')} kPa`,`PSB = ${f0(P)} kN (BOTH SIDES);  k1 = ${k1}, k2 = ${k2}`,`MREQ. = k2 x PSB x L / 1.6 = ${f0(Mreq)} kNm`,`IREQ. = n x k1 x PSB,LL x L² / 2.8 = ${f0(Ireq)} cm4`,sec?`∴ USE ${sec[0]} (GRADE S355) (MC = ${f0(sec[2])} kNm, I = ${f0(sec[1])} cm4)   D ≤ ZONE ${I('Z')}  ${okTxt(ratio)}`:`NO ROLLED SECTION → PLATE GIRDER`]; break; }
     case 'plate': { const r=n(v.L)/n(v.t); ratio=Math.max(n(v.t)/n(v.Z),(st.plateRatio/r)>1?1:r/st.plateRatio*0); L=[`TRANSFER PLATE : ${I('t')} THK., MAX. SPAN ${I('L')} mm`,`SPAN / THK = ${f1(r)} (≤ ${st.plateRatio} ASSUMED)`,`THK. ${n(v.t)} ≤ AVAILABLE ${I('Z')} mm    ${okTxt(n(v.t)/n(v.Z))}`]; ratio=n(v.t)/n(v.Z); break; }
-    case 'col': { const P=n(v.q)*n(v.A)*n(v.n)*n(v.ef), Ac=P*1000/n(v.k), prov=n(v.side)**2; ratio=Math.max(Ac/prov,(n(v.H)/n(v.side))/st.slenderBraced);
-      L=[`NO. OF STOREY = ${I('n')}`,`TRIBUTARY AREA = ${I('A')} m2`,`ASSUME ${I('q')} kPa / FLOOR`,`LOADING = ${n(v.q)} x ${n(v.A)} x ${n(v.n)} x ${I('ef')} = ${f0(P)} kN`,`N = ${I('k')} Ac  →  Ac = ${f0(Ac)} mm2`,`∴ PROVIDE ${I('side')} x ${n(v.side)} (Ac,PROV = ${f0(prov)} mm2)    ${okTxt(Ac/prov)}`,`SLENDERNESS = H / D = ${I('H')} / ${n(v.side)} = ${f1(n(v.H)/n(v.side))} ${lt(n(v.H)/n(v.side),st.slenderBraced)} ${st.slenderBraced} (BRACED)    ${okTxt(n(v.H)/n(v.side)/st.slenderBraced)}`]; break; }
+    case 'col': { const P=n(v.q)*n(v.A)*n(v.n)*n(v.ef)+n(v.P), Ac=P*1000/n(v.k), prov=n(v.side)**2; ratio=Math.max(Ac/prov,(n(v.H)/n(v.side))/st.slenderBraced);
+      L=[`NO. OF STOREY = ${I('n')}`,`TRIBUTARY AREA = ${I('A')} m2`,`ASSUME ${I('q')} kPa / FLOOR`,`LOADING = ${n(v.q)} x ${n(v.A)} x ${n(v.n)} x ${I('ef')} + ${I('P')} (FROM TRANSFER) = ${f0(P)} kN`,`N = ${I('k')} Ac  →  Ac = ${f0(Ac)} mm2`,`∴ PROVIDE ${I('side')} x ${n(v.side)} (Ac,PROV = ${f0(prov)} mm2)    ${okTxt(Ac/prov)}`,`SLENDERNESS = H / D = ${I('H')} / ${n(v.side)} = ${f1(n(v.H)/n(v.side))} ${lt(n(v.H)/n(v.side),st.slenderBraced)} ${st.slenderBraced} (BRACED)    ${okTxt(n(v.H)/n(v.side)/st.slenderBraced)}`]; break; }
   }
   return {html:L.join('\n'),v:verdictOf(ratio,tol)};
 }
