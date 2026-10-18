@@ -10,14 +10,14 @@ const DEF_SET = {
   tol:15, step:250, minSize:500,
   slabRC:150, slabComp:125, sdSlab:26, sdSec:23, sdMain:26, sdCant:7, cantRC:5, cantSt:7,
   kRC:20, kSt:17.8, ef:1.25, tf:1.5, nRC:27.7, nComp:39.95, fcuB:45, py:355, sdPT:20, plateRatio:6, wallRatio:6, inclMax:0.25,
-  slenderBraced:15, colGroups:3
+  slenderBraced:15, colGroups:3, zoneOffset:1, layouts:1, sdFlat:26, vcFlat:0.6
 };
 const SET_LABELS = {
   tol:'"Slightly off" tolerance (%)', step:'Size step (mm)', minSize:'Min. column size (mm)',
   slabRC:'RC slab thickness (mm)', slabComp:'Composite slab thickness (mm)', sdSlab:'Slab S/D limit', sdSec:'Secondary beam S/D (×10/L if L>10)', sdMain:'Main / transfer beam S/D (×10/L if L>10)', sdCant:'Cantilever S/D limit',
   cantRC:'RC cantilever max. span (m)', cantSt:'Steel cantilever max. span (m)',
   kRC:'RC load per floor (kPa)', kSt:'Steel WULS per floor (kPa)', ef:'Elastic factor (columns)', tf:'Transfer factor', nRC:'RC column N/Ac (fcu60, 2%)', nComp:'Composite column N/Ac', fcuB:'Beam fcu (MPa)', py:'Steel py (MPa)',
-  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', colGroups:'Column types: 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column'
+  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', layouts:'Try long-span column layouts (1 = yes, 0 = only the full grid)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column'
 };
 const KINDS = [
   ['core','Core wall (rigid support)'],
@@ -176,6 +176,7 @@ const SCHEMES=[
   {id:'R4',mat:'rc',name:'IN-SITU RC BEAM AND SLAB WITH INCLINED COLUMN AND CORE WALL',sys:['INCL','RC'],needCarry:true,must:'INCL'},
   {id:'R5',mat:'rc',name:'IN-SITU RC BEAM AND SLAB SUPPORTED BY HANGER COLUMN IN TURN SUPPORTED BY STEEL TRUSS AT ROOF LEVEL',sys:['HANG','RC'],must:'HANG'},
   {id:'R6',mat:'rc',name:'IN-SITU RC BEAM AND SLAB WITH POST-TENSIONED LONG-SPAN / TRANSFER GIRDERS',sys:['RC','PT'],note:'Post-tensioning is not in your template — use only if you are comfortable justifying it.',must:'PT'},
+  {id:'R7',mat:'rc',floor:'flat',name:'IN-SITU RC FLAT SLAB (WITH DROP PANELS) AND TRANSFER BEAM SYSTEM WITH COLUMN AND CORE WALL',sys:['RC','RCWALL'],note:'Flat slab is not in your template — punching shear checked with a simple perimeter rule.'},
   {id:'S1',mat:'st',name:'STEEL COMPOSITE BEAM AND SLAB SYSTEM WITH COLUMN AND BRACED CORE WALL',sys:['ST']},
   {id:'S2',mat:'st',name:'STEEL COMPOSITE BEAM AND SLAB AND TRANSFER TRUSS SYSTEM WITH COLUMN AND BRACED CORE WALL',sys:['ST','STRUSS'],must:'STRUSS'},
   {id:'S3',mat:'st',name:'STEEL COMPOSITE BEAM AND SLAB SUPPORTED BY BRACED CORE WALL AND HANGER COLUMN IN TURN SUPPORTED BY STEEL TRUSS AT ROOF LEVEL',sys:['HANG','ST'],must:'HANG'}
@@ -183,22 +184,57 @@ const SCHEMES=[
 const pickSec=(list,Mreq,Ireq)=>list.slice().sort((a,b)=>a[1]-b[1]).find(r=>r[2]>=Mreq&&r[1]>=Ireq);
 const secDepth=n=>{ const m=String(n).match(/(\d+)x/); return m?+m[1]/1000:null; };
 
+function layoutsFor(W){
+  // A = columns on every grid intersection; B / C = long-span layouts that omit columns on alternate free grid lines
+  const out=[{id:'A',name:'FULL GRID',short:'COLUMNS AT EVERY GRID INTERSECTION',removed:[],omit:{x:[],y:[]}}];
+  if (num(W.set.layouts)===0) return out;
+  const C=compile(W,null,null); if (C.err.length) return out; const M=buildModel(C.S); if (M.err.length) return out;
+  const gx=M.grids[0].gx, gy=M.grids[0].gy;
+  const prot={x:new Set(), y:new Set()}; const addP=(ax,v)=>prot[ax].add(Math.round(v*20));
+  M.zones.forEach(z=>{ addP('x',z.x1); addP('x',z.x2); addP('y',z.y1); addP('y',z.y2); });
+  M.walls.forEach(w=>{ addP('x',w.x1); addP('x',w.x2); addP('y',w.y1); addP('y',w.y2); });
+  const pick=(g,ax)=>{ const om=[]; let prev=false; g.pos.forEach((v,i)=>{ const free=i>0&&i<g.pos.length-1&&!prot[ax].has(Math.round(v*20)); if(free&&!prev){ om.push(i); prev=true; } else prev=false; }); return om; };
+  const ox=pick(gx,'x'), oy=pick(gy,'y');
+  const mk=(id,ax,idx)=>{ const lab=idx.map(i=>(ax==='x'?gx:gy).labels[i]); const removed=[];
+    idx.forEach(i=>{ (ax==='x'?gy:gx).labels.forEach(o=>removed.push(ax==='x'?{x:gx.labels[i],y:o}:{x:o,y:gy.labels[i]})); });
+    return {id,name:`LONG-SPAN ${ax==='x'?'X':'Y'}`,short:`NO COLUMNS ON GRID ${lab.join(', ')} (LONG-SPAN BAYS IN ${ax==='x'?'X':'Y'})`,removed,omit:{x:ax==='x'?lab:[],y:ax==='y'?lab:[]}}; };
+  if (ox.length) out.push(mk('B','x',ox)); if (oy.length) out.push(mk(ox.length?'C':'B','y',oy));
+  return out;
+}
 function evaluate(W){
-  const st=W.set; const out=[];
-  for (const sc of SCHEMES){
+  const out=[]; const lays=layoutsFor(W);
+  for (const lay of lays) for (const sc0 of SCHEMES){
+    const sc={...sc0,base:sc0.id,id:sc0.id+(lay.id==='A'?'':'-'+lay.id),lay};
     // iterate geometry: column widths influence grid positions when spacing codes are used
     let wx=null, wy=null, C=null, M=null, R=null;
     for (let it=0; it<3; it++){
       C=compile(W,wx,wy); if (C.err.length) return {err:C.err};
+      C.S.removed=lay.removed.map(r=>({...r}));
       M=buildModel(C.S); if (M.err.length) return {err:M.err};
       R=assess(W,sc,C,M);
       const nwx=C.xl.map((l,i)=>R.lineW.x[i]||0), nwy=C.yl.map((l,i)=>R.lineW.y[i]||0);
       if (wx&&nwx.every((v,i)=>v===wx[i])&&nwy.every((v,i)=>v===wy[i])) break;
       wx=nwx; wy=nwy;
     }
-    out.push({sc,C,M,R});
+    out.push({sc,C,M,R,lay});
   }
-  return {list:out};
+  return {list:out,lays};
+}
+const SYS_CAT={RC:'GIRDER',ST:'GIRDER',PT:'GIRDER',RCWALL:'STOREY-DEEP',STRUSS:'STOREY-DEEP',PLATE:'PLATE',INCL:'INCLINED COLUMN',HANG:'HANGER'};
+function sigOf(e){ const tr=[...new Set([...e.R.used].map(u=>SYS_CAT[u]).filter(Boolean))].sort(); return {lay:e.lay.id,floor:e.sc.floor==='flat'?'FLAT SLAB':'BEAM AND SLAB',tr:tr.join(' + ')||'NONE'}; }
+// strong = column layout, floor system, or a different transfer principle (plate / hanger / inclined column);
+// girder vs storey-deep girder / truss alone is only a member-type change (weak)
+const major=t=>t.split(' + ').map(x=>x==='STOREY-DEEP'?'GIRDER':x).filter((v,i,a)=>a.indexOf(v)===i).join(' + ');
+function distinctBy(a,b){ const A=sigOf(a), B=sigOf(b), d=[]; if(A.lay!==B.lay) d.push('column layout (framing plan)'); if(A.floor!==B.floor) d.push('floor system (load path)'); if(major(A.tr)!==major(B.tr)) d.push('transfer principle (load path)'); return d; }
+function weakDiff(a,b){ const A=sigOf(a), B=sigOf(b); return !distinctBy(a,b).length&&A.tr!==B.tr; }
+const feasibleE=e=>e.R.applicable&&e.R.worst!=='fail';
+function recPair(L){
+  const fe=L.filter(feasibleE).sort((a,b)=>V_RANK[a.R.worst]-V_RANK[b.R.worst]||(a.lay.id>b.lay.id?1:a.lay.id<b.lay.id?-1:0)||a.R.checks.filter(c=>c.v==='marg').length-b.R.checks.filter(c=>c.v==='marg').length);
+  if (!fe.length) return null; const a=fe[0];
+  const cands=fe.slice(1).map(b=>({b,d:distinctBy(a,b)})).filter(x=>x.d.length).sort((x,y)=>V_RANK[x.b.R.worst]-V_RANK[y.b.R.worst]||(y.d.some(t=>t.startsWith('column'))-x.d.some(t=>t.startsWith('column')))||(y.d.length-x.d.length)||((x.b.sc.mat!==a.sc.mat)?-1:0)-((y.b.sc.mat!==a.sc.mat)?-1:0));
+  // keep one partner per signature for the "other options" list
+  const seen=new Set(), others=[]; cands.forEach(x=>{ const sg=sigOf(x.b), k=sg.lay+"|"+sg.floor+"|"+major(sg.tr); if(!seen.has(k)){ seen.add(k); others.push(x); } });
+  return {a,b:cands[0]?cands[0].b:null,d:cands[0]?cands[0].d:[],others:others.slice(1,5)};
 }
 
 function assess(W,sc,C,M){
@@ -238,7 +274,10 @@ function assess(W,sc,C,M){
   const inclPts=new Set();
   if (sc.sys.includes('INCL')) M.tpoints.forEach(t=>{ if(t.carries&&t.incl){ const r=t.incl.ratio/st.inclMax; const c=add({cat:'Inclined column',where:`${L[t.k].name} ${t.label}`,item:`INCLINED COLUMN ${t.label} → ${t.incl.label}`,calc:`offset ${f2(t.incl.d)} / height ${f2(t.incl.h)} = ${f2(t.incl.ratio)} ≤ ${st.inclMax}`,need:t.incl.ratio,have:st.inclMax,ratio:r,strict:true,fix:'Spread the slope over two storeys / tie beams for kick-out force'}); if(c.v!=='fail'){ inclPts.add(t.k+'|'+t.key); used.add('INCL'); } } });
   const hangPts=new Set();
-  if (sc.sys.includes('HANG')) M.tpoints.forEach(t=>{ if(t.hang){ const r=t.hang.req/t.hang.H; const c=add({cat:'Hanger + truss',where:`${L[t.k].name} ${t.label}`,item:`HANGER ${t.label} TO TRUSS IN ${L[t.hang.f].name}`,calc:`truss span ${f1(t.hang.span)} m, depth ${f1(t.hang.H)} m`,need:t.hang.req,have:t.hang.H,ratio:r,fix:'Deeper truss / shorter span'}); if(c.v!=='fail'){ hangPts.add(t.k+'|'+t.key); used.add('HANG'); } } });
+  const gIdx=Math.max(0,L.findIndex(l=>normF(l.name)===normF(W.floors.ground||'G/F')));
+  const manualBelow=t=>{ const pp=M.pmap.get(t.key); return pp&&t.k-1>=0&&M.col[t.k-1][pp.id]==='manual'; };
+  // hangers only for suspended floors above ground, and not where a column was simply omitted by the layout (long-span beams there)
+  if (sc.sys.includes('HANG')) M.tpoints.forEach(t=>{ if(t.hang&&t.k>gIdx&&!manualBelow(t)){ const r=t.hang.req/t.hang.H; const c=add({cat:'Hanger + truss',where:`${L[t.k].name} ${t.label}`,item:`HANGER ${t.label} TO TRUSS IN ${L[t.hang.f].name}`,calc:`truss span ${f1(t.hang.span)} m, depth ${f1(t.hang.H)} m`,need:t.hang.req,have:t.hang.H,ratio:r,fix:'Deeper truss / shorter span'}); if(c.v!=='fail'){ hangPts.add(t.k+'|'+t.key); used.add('HANG'); } } });
   let gN=0;
   for (const m of ms){
     const geo=`${m.dir}|${m.x1},${m.y1},${m.x2},${m.y2}`;
@@ -270,6 +309,12 @@ function assess(W,sc,C,M){
     const longD=Math.max(bx,byy), shortD=Math.min(bx,byy);
     const tSlab=(sc.mat==='rc'?st.slabRC:st.slabComp)/1000, nSec=Math.max(1,Math.ceil(longD/(st.sdSlab*tSlab)-1e-9)), ls=longD/nSec;
     const r={type:t.name,floors:`${L[ks[0]-1].name}~${L[ks.at(-1)-1].name}`,zone,nSec,ls,secDir:bx>=byy?'Y':'X'};
+    if (sc.floor==='flat'){
+      const Lf=longD, d=Lf/st.sdFlat, tf=roundUp(d+0.04,0.025), drop=roundUp(1.5*tf,0.025), Ld=roundUp(Lf/3,0.25);
+      Object.assign(r,{sec:'— (NO BEAMS)',main:`FLAT SLAB ${f0(tf*1000)} THK. + DROP ${f0(drop*1000)} (${f2(Ld)} m SQ.)`,flat:{t:tf,drop,Ld,Lf},nSec:1,ls:Lf,tSlab:tf,shortD,longD});
+      add({cat:'Slab',where:t.name,item:`FLAT SLAB ${f0(tf*1000)} THK., DROP PANEL ${f0(drop*1000)} THK.`,calc:`L / d = ${f0(Lf*1000)} / d ≤ ${st.sdFlat} → d ≥ ${f0(d*1000)} → h = ${f0(tf*1000)}; drop ${f0(drop*1000)} vs zone ${f0(zone*1000)}`,need:drop,have:zone,ratio:drop/zone,fix:'Thinner drop / column head; reduce span'});
+      typ.push(r); return;
+    }
     add({cat:'Slab',where:t.name,item:`SLAB ${f0(tSlab*1000)} THK.${sc.mat==='st'?' COMPOSITE':''} @ ${f2(ls)} m`,calc:`S/D = ${f0(ls*1000)} / ${f0(tSlab*1000)} = ${f1(ls/tSlab)} < ${st.sdSlab}`,need:ls/tSlab,have:st.sdSlab,ratio:ls/tSlab/st.sdSlab,fix:'More secondary beams'});
     if (sc.mat==='rc'){
       const sdS=lsr(st.sdSec,shortD), Ds=roundUp(shortD/sdS,step), Bs=roundUp(Math.max(Ds/2,0.25),step);
@@ -321,18 +366,37 @@ function assess(W,sc,C,M){
   let crit=null;
   Object.values(groups).sort((a,b)=>a.id.localeCompare(b.id)).forEach(G=>{ const c=G.crit; if(!c) return; if(!crit||c.load>crit.load) crit={...c,side:G.side};
     const h=L[c.s].h; add({cat:'Column',where:`${G.id}${G.desc?' '+G.desc:''} — governing ${c.p.label} at ${L[c.s].name} (${G.count} nos.)`,item:`COLUMN ${G.id} ${f0(G.side*1000)} x ${f0(G.side*1000)}${sc.mat==='st'?' (ENCASED)':''}`,calc:`P = ${f0(c.load)} kN; Ac = P / ${nC} = ${f0(c.load*1000/nC)} mm2 → ${f0(G.side*1000)}; H/D = ${f1(h/G.side)} < ${st.slenderBraced}`,need:h/G.side,have:st.slenderBraced,ratio:h/G.side/st.slenderBraced,strict:true,fix:''}); });
-  // offsets: column faces must not enter restricted zones
+  if (sc.floor==='flat'){ const ft=typ.filter(t=>t.flat).sort((a,b)=>b.flat.Lf-a.flat.Lf)[0];
+    if (ft) Object.values(groups).forEach(G=>{ const c=G.crit; if(!c) return; const V=q*c.area/Math.max(1,c.nfl), d=ft.flat.drop-0.04, cs=G.side, beta=G.id==='C2'?1.4:1.15;
+      const u1=4*(cs+3*d), v1=beta*V*1000/(u1*1000*d*1000), v0=V*1000/(4*cs*1000*d*1000), vmax=0.8*Math.sqrt(st.fcuB);
+      G.punch={V,d,beta,u1,v1,v0};
+      add({cat:'Punching shear',where:`${G.id} (${ft.type})`,item:`PUNCHING SHEAR AT ${G.id} ${f0(cs*1000)} SQ.`,calc:`V = ${f0(V)} kN/floor; v = ${beta}V / (u1 d) = ${f2(v1)} MPa ≤ 2vc = ${f2(2*st.vcFlat)} (links); v0 = ${f2(v0)} ≤ ${f2(vmax)}`,need:Math.max(v1/(2*st.vcFlat),v0/vmax),have:1,ratio:Math.max(v1/(2*st.vcFlat),v0/vmax),fix:'Thicker drop panel / column head / larger column'}); }); }
+  // offsets: column faces must not enter restricted zones (setting zoneOffset) and must stay inside the building edge
   const offsets={};
+  const onGrid=new Set();
+  const why=(o,t)=>{ (o.why=o.why||[]).includes(t)||o.why.push(t); };
+  const keepOnGrid=num(st.zoneOffset)===0;
   M.zones.filter(z=>z.type==='colfree'||z.type==='void').forEach(z=>{
     pts.forEach(p=>{ for(let s=z.s1;s<=z.s2;s++){ const c=colSize[p.id][s]; if(!c||!present(s,p)) continue; const h=c.side/2;
       const ovX=Math.min(p.x+h,z.x2)-Math.max(p.x-h,z.x1), ovY=Math.min(p.y+h,z.y2)-Math.max(p.y-h,z.y1);
-      if (ovX>1e-6&&ovY>1e-6){ const o=offsets[p.id]||{dx:0,dy:0,p,z,side:c.side};
+      if (ovX>1e-6&&ovY>1e-6){ const onEdge=[p.x-z.x1,p.x-z.x2,p.y-z.y1,p.y-z.y2].some(v=>Math.abs(v)<TOL);
+        if (keepOnGrid&&onEdge){ onGrid.add(p.label+' ('+z.name+')'); continue; }
+        const o=offsets[p.id]||{dx:0,dy:0,p,z,side:c.side};
         if (Math.abs(p.x-z.x1)<TOL) o.dx=Math.min(o.dx,-h); else if (Math.abs(p.x-z.x2)<TOL) o.dx=Math.max(o.dx,h);
         if (Math.abs(p.y-z.y1)<TOL) o.dy=Math.min(o.dy,-h); else if (Math.abs(p.y-z.y2)<TOL) o.dy=Math.max(o.dy,h);
-        if (!o.dx&&!o.dy){ o.clash=true; } o.side=Math.max(o.side,c.side); offsets[p.id]=o; } } });
+        if (!o.dx&&!o.dy){ o.clash=true; o.z=z; } else why(o,'edge of '+z.name); o.side=Math.max(o.side,c.side); offsets[p.id]=o; } } });
   });
-  Object.values(offsets).forEach(o=>{ if(o.clash) add({cat:'Column clash',where:o.p.label,item:`COLUMN ${o.p.label} INSIDE ${o.z.name}`,calc:'column face enters restricted zone',need:2,have:1,ratio:2,strict:true,fix:'Move grid / remove column'});
-    else add({cat:'Column offset',where:o.p.label,item:`COLUMN ${o.p.label} OFFSET ${o.dx?`${o.dx>0?'+':''}${f0(o.dx*1000)} mm X `:''}${o.dy?`${o.dy>0?'+':''}${f0(o.dy*1000)} mm Y`:''}`,calc:`face aligned to edge of ${o.z.name}`,need:0,have:1,ratio:0,fix:''}); });
+  M.zones.filter(z=>z.type==='footprint').forEach(z=>{
+    pts.forEach(p=>{ for(let s=z.s1;s<=z.s2;s++){ const c=colSize[p.id][s]; if(!c||!present(s,p)) continue; const h=c.side/2; let hit=false;
+      const o=offsets[p.id]||{dx:0,dy:0,p,z,side:c.side};
+      if (Math.abs(p.x-z.x1)<TOL){ o.dx=Math.max(o.dx,h); hit=true; } else if (Math.abs(p.x-z.x2)<TOL){ o.dx=Math.min(o.dx,-h); hit=true; }
+      if (Math.abs(p.y-z.y1)<TOL){ o.dy=Math.max(o.dy,h); hit=true; } else if (Math.abs(p.y-z.y2)<TOL){ o.dy=Math.min(o.dy,-h); hit=true; }
+      if (hit){ why(o,`building edge (${L[s].name})`); o.side=Math.max(o.side,c.side); offsets[p.id]=o; } } });
+  });
+  if (onGrid.size) add({cat:'Column offset',where:[...onGrid].join(', '),item:'COLUMNS KEPT ON GRID AT RESTRICTED-ZONE EDGE',calc:'half the column projects into the zone — set the void / column-free edge at the column face',need:0,have:1,ratio:0,fix:''});
+  Object.values(offsets).forEach(o=>{ if(o.clash) add({cat:'Column clash',where:o.p.label,item:`COLUMN ${o.p.label} INSIDE ${o.z.name}`,calc:'column face enters restricted zone',need:2,have:1,ratio:2,strict:true,fix:'Move grid / remove column',pt:o.p.id});
+    else if (o.dx||o.dy){ const w=o.why||[]; const edges=w.filter(t=>t.startsWith('building edge')); const short=[...w.filter(t=>!t.startsWith('building edge')),...(edges.length?['building edge ('+edges.map(t=>t.slice(15,-1)).filter((v,i,a)=>a.indexOf(v)===i).join(', ')+')']:[])];
+      add({cat:'Column offset',where:o.p.label,item:`COLUMN ${o.p.label} OFFSET ${o.dx?`${o.dx>0?'+':''}${f0(o.dx*1000)} mm X `:''}${o.dy?`${o.dy>0?'+':''}${f0(o.dy*1000)} mm Y`:''}`,calc:`face aligned to ${short.join(' / ')}`,need:0,have:1,ratio:0,fix:''}); } });
   // spacing rule per floor type
   (W.types||[]).forEach((t,ti)=>{ const minSp=num(t.minSp); if(!minSp) return; let worst=null;
     C.typeOf.forEach((x,s)=>{ if(x!==ti) return;
@@ -343,7 +407,7 @@ function assess(W,sc,C,M){
           const cc=(ax==='x'?b.x-a.x:b.y-a.y)+ob-oa; const wa=colSize[a.id][s]?.side||0, wb=colSize[b.id][s]?.side||0;
           const val=t.spType==='e'?cc-wa/2-wb/2:cc; if(!worst||val<worst.val) worst={val,a,b,s,cc}; } });
       }); });
-    if (worst) add({cat:'Column spacing',where:t.name,item:`MIN. ${t.spType==='e'?'CLEAR':'C/C'} SPACING ${f2(worst.val)} m (${worst.a.label}–${worst.b.label})`,calc:`required ≥ ${minSp} m ${t.spType==='e'?'clear':'c/c'}`,need:minSp,have:worst.val,ratio:minSp/worst.val,strict:true,fix:''});
+    if (worst) add({cat:'Column spacing',where:t.name,item:`MIN. ${t.spType==='e'?'CLEAR':'C/C'} SPACING ${f2(worst.val)} m (${worst.a.label}–${worst.b.label})`,calc:`required ≥ ${minSp} m ${t.spType==='e'?'clear':'c/c'}`,need:minSp,have:worst.val,ratio:minSp/worst.val,strict:true,fix:'',ti,minSp});
   });
   /* --- cantilevers at slab edges --- */
   const cants=[];
@@ -363,6 +427,11 @@ function assess(W,sc,C,M){
 
 /* ---------- Output helpers ---------- */
 const f0=x=>Number.isFinite(x)?Math.round(x).toLocaleString('en-US'):'–', f1=x=>Number.isFinite(x)?x.toFixed(1):'–', f2=x=>Number.isFinite(x)?x.toFixed(2):'–';
+function memberWhy(c){
+  if (c.sys==='RCWALL') return `L/H ${f1(c.need*W.set.wallRatio/c.have)} > ${W.set.wallRatio}`;
+  if (c.sys==='STRUSS') return `CHORD > UC 356x406x634`;
+  return `D ${f0(c.need*1000)} > ZONE ${f0(c.have*1000)}`;
+}
 function planGroups(M){
   // group consecutive slab levels with the same framing signature
   const sig=k=>{ const parts=[];
@@ -378,13 +447,14 @@ function planSVG2(E,k,grp){
   const {M,R,sc}=E; const st=W.set; const nL=M.nL;
   const x0=Math.min(...M.xs), x1=Math.max(...M.xs), y0=Math.min(...M.ys), y1=Math.max(...M.ys);
   const S=Math.min(720/Math.max(x1-x0,1),560/Math.max(y1-y0,1)), pad=56, Wd=(x1-x0)*S+pad*2, H=(y1-y0)*S+pad*2;
-  const X=x=>pad+(x-x0)*S, Y=y=>pad+(y-y0)*S; let g='';
+  const X=x=>pad+(x-x0)*S, Y=y=>pad+(y-y0)*S; let g='', ngTxt='';
+  const clashPts=new Set(R.checks.filter(c=>c.cat==='Column clash'&&c.pt).map(c=>c.pt));
   const id='h'+Math.random().toString(36).slice(2,7);
   g+=`<defs><pattern id="${id}" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#d62828" stroke-width="1.2"/></pattern></defs>`;
   M.cells.forEach(c=>{ if(M.slabAt(k,c.cx,c.cy)) g+=`<rect x="${X(c.x1)}" y="${Y(c.y1)}" width="${(c.x2-c.x1)*S}" height="${(c.y2-c.y1)*S}" fill="#f7f8fa"/>`; });
   // restricted zones in red hatch
   M.zones.forEach(z=>{ const a=(k-1>=0&&M.zAct(z,k-1))||(k<=nL-2&&M.zAct(z,k)); if(!a||z.type==='footprint'||z.type==='core'||z.type==='outside') return;
-    g+=`<rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#${id})" fill-opacity=".55" stroke="#d62828" stroke-width="1.2" stroke-dasharray="5 3"/><text x="${X((z.x1+z.x2)/2)}" y="${Y((z.y1+z.y2)/2)+4}" text-anchor="middle" font-size="10" font-weight="700" fill="#b71c1c">${esc(z.name.toUpperCase())}</text>`; });
+    g+=`<g class="ly-zone"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#${id})" fill-opacity=".55" stroke="#d62828" stroke-width="1.2" stroke-dasharray="5 3"/><text x="${X((z.x1+z.x2)/2)}" y="${Y((z.y1+z.y2)/2)+16}" text-anchor="middle" font-size="10" font-weight="700" fill="#b71c1c" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())}</text></g>`; });
   // grid
   const gr=M.grids[0];
   gr.gx.pos.forEach((p,i)=>{ g+=`<line x1="${X(p)}" y1="${pad-24}" x2="${X(p)}" y2="${H-pad+8}" stroke="#9aa" stroke-width=".6" stroke-dasharray="9 3 2 3"/><circle cx="${X(p)}" cy="${pad-32}" r="9" fill="#fff" stroke="#333"/><text x="${X(p)}" y="${pad-28}" text-anchor="middle" font-size="10">${esc(gr.gx.labels[i])}</text>`;
@@ -397,20 +467,27 @@ function planSVG2(E,k,grp){
   const slabMid=(x,y)=>M.slabAt(k,x,y+0.01)||M.slabAt(k,x,y-0.01)||M.slabAt(k,x+0.01,y)||M.slabAt(k,x-0.01,y);
   const memberGeo=new Set(M.members.filter(m=>m.k===k).flatMap(m=>{ const out=[]; const a=m.dir==='X'?m.x1:m.y1, b=m.dir==='X'?m.x2:m.y2; const ln=m.dir==='X'?gr.gx.pos:gr.gy.pos; ln.forEach((v,i)=>{ const w=ln[i+1]; if(w!==undefined&&v>=a-TOL&&w<=b+TOL) out.push(m.dir==='X'?`X${v},${m.y1}`:`Y${m.x1},${v}`); }); return out; }));
   const line=(xa,ya,xb,yb,col,wd,dash)=>`<line x1="${X(xa)}" y1="${Y(ya)}" x2="${X(xb)}" y2="${Y(yb)}" stroke="${col}" stroke-width="${wd}" ${dash?`stroke-dasharray="${dash}"`:''}/>`;
-  gr.gy.pos.forEach(y=>{ for(let i=0;i<gr.gx.pos.length-1;i++){ const a=gr.gx.pos[i], b=gr.gx.pos[i+1]; if(!slabMid((a+b)/2,y)||inCore((a+b)/2,y)||memberGeo.has(`X${a},${y}`)) continue; g+=line(a,y,b,y,'#1f4fd1',2); } });
-  gr.gx.pos.forEach(x=>{ for(let j=0;j<gr.gy.pos.length-1;j++){ const a=gr.gy.pos[j], b=gr.gy.pos[j+1]; if(!slabMid(x,(a+b)/2)||inCore(x,(a+b)/2)||memberGeo.has(`Y${x},${a}`)) continue; g+=line(x,a,x,b,'#1f4fd1',2); } });
+  const flat=sc.floor==='flat';
+  if (!flat) gr.gy.pos.forEach(y=>{ for(let i=0;i<gr.gx.pos.length-1;i++){ const a=gr.gx.pos[i], b=gr.gx.pos[i+1]; if(!slabMid((a+b)/2,y)||inCore((a+b)/2,y)||memberGeo.has(`X${a},${y}`)) continue; g+=line(a,y,b,y,'#1f4fd1',2); } });
+  if (!flat) gr.gx.pos.forEach(x=>{ for(let j=0;j<gr.gy.pos.length-1;j++){ const a=gr.gy.pos[j], b=gr.gy.pos[j+1]; if(!slabMid(x,(a+b)/2)||inCore(x,(a+b)/2)||memberGeo.has(`Y${x},${a}`)) continue; g+=line(x,a,x,b,'#1f4fd1',2); } });
   const typeIdx=E.C.typeOf[Math.min(k-1,E.C.typeOf.length-1)], ty=R.typ.find(t=>t.type===(W.types[typeIdx]||{}).name)||R.typ[0];
   const nSec=ty?ty.nSec:3;
   for(let i=0;i<gr.gx.pos.length-1;i++) for(let j=0;j<gr.gy.pos.length-1;j++){ const xa=gr.gx.pos[i], xb=gr.gx.pos[i+1], ya=gr.gy.pos[j], yb=gr.gy.pos[j+1]; const cx=(xa+xb)/2, cy=(ya+yb)/2;
     if(!M.slabAt(k,cx,cy)||inCore(cx,cy)) continue;
     for(let n=1;n<nSec;n++){ if(xb-xa>=yb-ya){ const x=xa+(xb-xa)*n/nSec; g+=line(x,ya,x,yb,'#36a9e1',1); } else { const y=ya+(yb-ya)*n/nSec; g+=line(xa,y,xb,y,'#36a9e1',1); } } }
+  if (flat&&ty&&ty.flat){ const hd=ty.flat.Ld/2; M.pts.forEach(p=>{ if(!(k-1>=0&&M.present(M.col[k-1][p.id])&&M.col[k-1][p.id]!=='core')) return; const o=R.offsets[p.id]||{}; const cx=p.x+(o.dx||0), cy=p.y+(o.dy||0);
+      const xa=Math.max(cx-hd,x0), xb=Math.min(cx+hd,x1), ya=Math.max(cy-hd,y0), yb=Math.min(cy+hd,y1);
+      g+=`<rect x="${X(xa)}" y="${Y(ya)}" width="${(xb-xa)*S}" height="${(yb-ya)*S}" fill="none" stroke="#1f4fd1" stroke-dasharray="4 3"/>`; });
+    g+=`<text x="${X(x0)}" y="${Y(y1)+30}" font-size="10" fill="#1f4fd1">${esc(ty.main)} (DASHED = DROP PANEL)</text>`; }
   // cantilevers to slab edge
   const fp=M.zones.find(z=>z.type==='footprint'&&k-1>=0&&M.zAct(z,k-1));
   if (fp&&colsBelow.length){ const xs=colsBelow.map(p=>p.x), ys=colsBelow.map(p=>p.y); const mnx=Math.min(...xs),mxx=Math.max(...xs),mny=Math.min(...ys),mxy=Math.max(...ys);
     colsBelow.forEach(p=>{ if(Math.abs(p.x-mnx)<TOL&&mnx-fp.x1>0.3) g+=line(p.x,p.y,fp.x1,p.y,'#d62828',2); if(Math.abs(p.x-mxx)<TOL&&fp.x2-mxx>0.3) g+=line(p.x,p.y,fp.x2,p.y,'#d62828',2); if(Math.abs(p.y-mny)<TOL&&mny-fp.y1>0.3) g+=line(p.x,p.y,p.x,fp.y1,'#d62828',2); if(Math.abs(p.y-mxy)<TOL&&fp.y2-mxy>0.3) g+=line(p.x,p.y,p.x,fp.y2,'#d62828',2); });
     g+=`<rect x="${X(fp.x1)}" y="${Y(fp.y1)}" width="${(fp.x2-fp.x1)*S}" height="${(fp.y2-fp.y1)*S}" fill="none" stroke="#222" stroke-width="1"/>`; }
   // long-span / transfer members
-  M.members.filter(m=>m.k===k).forEach(m=>{ const c=R.ch[m.id]; const col=!c?'#d62828':c.sys==='COVERED'||c.sys==='PLATE'||c.sys==='NOTREQ'?'#8a8a8a':'#1a9e3f';
+  M.members.filter(m=>m.k===k).forEach(m=>{ const c=R.ch[m.id]; const col=!c||c.v==='fail'?'#d62828':c.v==='marg'?'#e08a00':c.sys==='COVERED'||c.sys==='PLATE'||c.sys==='NOTREQ'?'#8a8a8a':'#1a9e3f';
+    if ((!c||c.v==='fail'||c.v==='marg')){ const mx=X((m.x1+m.x2)/2), my=Y((m.y1+m.y2)/2); const t=!c?'NO SYSTEM':`${c.tag} ${c.v==='fail'?'✗':'≈'} ${memberWhy(c)}`;
+      ngTxt+=`<text x="${mx+(m.dir==='Y'?8:0)}" y="${my+(m.dir==='X'?16:0)}" ${m.dir==='Y'?`transform="rotate(-90 ${mx+8} ${my})" text-anchor="middle"`:'text-anchor="middle"'} font-size="10" font-weight="700" fill="${col}" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(t)}</text>`; }
     g+=`<line x1="${X(m.x1)}" y1="${Y(m.y1)}" x2="${X(m.x2)}" y2="${Y(m.y2)}" stroke="${col}" stroke-width="5" ${c&&c.sys==='STRUSS'?'stroke-dasharray="10 4"':''}/>`;
     if (c&&c.tag){ const mx=X(m.x1+(m.x2-m.x1)*0.3), my=Y(m.y1+(m.y2-m.y1)*0.3); g+=`<text x="${mx+(m.dir==='Y'?7:0)}" y="${my+(m.dir==='X'?-7:0)}" font-size="10" font-weight="700" fill="${col}">${c.tag}</text>`; } });
   // plate
@@ -428,8 +505,21 @@ function planSVG2(E,k,grp){
     if (a&&b) g+=`<rect x="${x-side/2}" y="${y-side/2}" width="${side}" height="${side}" fill="#fff" stroke="#111" stroke-width="1.3"/><path d="M${x-side/2} ${y-side/2}L${x+side/2} ${y+side/2}M${x+side/2} ${y-side/2}L${x-side/2} ${y+side/2}" stroke="#111"/>`;
     else if (b) g+=`<rect x="${x-side/2}" y="${y-side/2}" width="${side}" height="${side}" fill="#fff" stroke="#111" stroke-dasharray="2.5 1.5"/>`;
     else g+=`<rect x="${x-side/2}" y="${y-side/2}" width="${side}" height="${side}" fill="url(#${id})" stroke="#111"/>`;
-    if (p.ctype) g+=`<text x="${x+side/2+2}" y="${y-side/2-1}" font-size="7.5" fill="#444">${p.ctype}</text>`;
+    if (p.ctype) g+=`<text class="ly-ct" x="${x+side/2+2}" y="${y-side/2-1}" font-size="7.5" fill="#444">${p.ctype}</text>`;
+    if (clashPts.has(p.id)){ g+=`<rect x="${x-side/2-3}" y="${y-side/2-3}" width="${side+6}" height="${side+6}" fill="none" stroke="#d62828" stroke-width="2.5"/>`; ngTxt+=`<text x="${x}" y="${y+side/2+11}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#d62828" stroke="#fff" stroke-width="3" paint-order="stroke">✗ IN ZONE</text>`; }
   });
+  // actual column spacing along each grid line (storey below this slab)
+  if (k-1>=0){ const s=k<=nL-2?k:k-1, tt=W.types[E.C.typeOf[s]]||{}, minSp=num(tt.minSp), clear=tt.spType==='e'; let sp='';
+    const cs=M.pts.filter(p=>M.present(M.col[s][p.id])), isCore=p=>M.col[s][p.id]==='core';
+    const pos=p=>{ const o=R.offsets[p.id]||{}; return [p.x+(o.dx||0),p.y+(o.dy||0)]; };
+    ['x','y'].forEach(ax=>{ const lines=new Map(); cs.forEach(p=>{ const key=Math.round((ax==='x'?p.y:p.x)*20); if(!lines.has(key)) lines.set(key,[]); lines.get(key).push(p); });
+      lines.forEach(arr=>{ arr.sort((a,b)=>ax==='x'?a.x-b.x:a.y-b.y); for(let i=0;i<arr.length-1;i++){ const a=arr[i], b=arr[i+1]; if(isCore(a)||isCore(b)) continue; const [ax1,ay1]=pos(a), [bx1,by1]=pos(b);
+        const cc=ax==='x'?bx1-ax1:by1-ay1; const wa=(R.colSize[a.id][s]||{}).side||0, wb=(R.colSize[b.id][s]||{}).side||0; const val=clear?cc-wa/2-wb/2:cc;
+        const ok=!minSp||val>=minSp-1e-9; const col=!minSp?'#555':ok?'#137333':'#c5221f'; const t=`${clear?'CLR ':''}${f0(val*1000)}`;
+        if (ax==='x'){ const tx=X((ax1+bx1)/2), ty=Y((ay1+by1)/2)-4; sp+=`<text x="${tx}" y="${ty}" text-anchor="middle" font-size="8.5" fill="${col}" ${ok?'':'font-weight="700"'} stroke="#fff" stroke-width="2.5" paint-order="stroke">${t}</text>`; }
+        else { const tx=X((ax1+bx1)/2)-4, ty=Y((ay1+by1)/2); sp+=`<text x="${tx}" y="${ty}" text-anchor="middle" font-size="8.5" fill="${col}" ${ok?'':'font-weight="700"'} transform="rotate(-90 ${tx} ${ty})" stroke="#fff" stroke-width="2.5" paint-order="stroke">${t}</text>`; } } }); });
+    g+=`<g class="ly-sp">${sp}</g>`; }
+  g+=`<g class="ly-ng">${ngTxt}</g>`;
   const title=`${M.L[grp.k1].name}${grp.k2>grp.k1?' ~ '+M.L[grp.k2].name:''} FRAMING PLAN`;
   return {svg:`<svg viewBox="0 0 ${Wd} ${H}" width="100%" style="max-width:${Wd}px">${g}</svg>`,title};
 }
@@ -451,7 +541,7 @@ function keyPlan(M,grp){
 
 /* ---------- UI ---------- */
 const $=s=>document.querySelector(s);
-let RES=null, view={scheme:null,step:1};
+let RES=null, view={scheme:null,step:1,tab:'schemes',hide:new Set(),cmp:null,cmpPlan:0};
 function fieldI(label,obj,key,w){ return `<label>${esc(label)}<input data-k="${key}" value="${esc(obj[key]??'')}" style="width:${w||'80px'}"></label>`; }
 function bindFields(root,obj){ root.querySelectorAll('[data-k]').forEach(el=>{ const k=el.dataset.k; const ev=el.type==='checkbox'?'change':'input'; el.addEventListener(ev,()=>{ obj[k]=el.type==='checkbox'?el.checked:el.value; changedW(); }); }); }
 function tableI(rows,cols,host,redraw){
@@ -510,36 +600,149 @@ function run(){
   try { RES=evaluate(W); } catch(e){ RES={err:['Calculation error: '+e.message]}; console.error(e); }
   renderOut();
 }
+function planLevels(E,grp){ const out=[]; for(let k=grp.k1;k<=grp.k2;k++) out.push(k); return out; }
+function planChecks(E,grp){
+  const {M,R,C}=E; const ks=planLevels(E,grp); const tnames=new Set(ks.map(k=>(W.types[C.typeOf[Math.max(0,k-1)]]||{}).name).filter(Boolean));
+  const unames=new Set(ks.map(k=>(W.types[C.typeOf[Math.min(k,M.nL-2)]]||{}).name).filter(Boolean));
+  const out=[];
+  M.members.filter(m=>ks.includes(m.k)).forEach(m=>{ const c=R.ch[m.id]; if(!c) out.push({v:'fail',t:`${m.level} GRID ${m.lineLabel} (${m.ends.join('–')}): NO SYSTEM AVAILABLE`}); else if(c.tag&&c.v!=='pass') out.push({v:c.v,t:`${c.tag} ${m.level} GRID ${m.lineLabel} (${m.ends.join('–')}): ${c.txt} — ${memberWhy(c)} (span ${f1(m.span)} m)`}); });
+  R.checks.forEach(c=>{ if(c.v==='pass') return; const tn=[...tnames].find(n=>c.where===n||c.where.startsWith(n+' (')||c.where.endsWith('('+n+')'));
+    if (c.cat==='Column spacing'){ if(unames.has(c.where)) out.push({v:c.v,t:`${c.item} — ${c.calc}`}); }
+    else if (tn&&!['Long span','Transfer'].includes(c.cat)) out.push({v:c.v,t:`${c.item} — ${c.calc}`});
+    else if (c.cat==='Column clash'&&ks.some(k=>k-1>=0&&M.present(M.col[k-1][c.pt]))) out.push({v:c.v,t:`${c.item}`});
+    else if (c.cat==='Column') out.push({v:c.v,t:`${c.item} — ${c.calc}`}); });
+  return out;
+}
+function planNotes(E,grp){ const n=planChecks(E,grp); if(!n.length) return '';
+  const fail=n.some(x=>x.v==='fail');
+  return `<div class="pnotes ly-ng ${fail?'fail':'marg'}"><b>${fail?'WHY THIS PLAN IS NOT FEASIBLE':'SLIGHTLY OFF ON THIS PLAN'}:</b>${n.map(x=>`<div>${V_ICON[x.v]} ${esc(x.t)}</div>`).join('')}</div>`; }
+function planSide(E,grp){
+  const {M,R,C,sc}=E; const k=grp.k1, s=Math.max(0,k-1); const t=W.types[C.typeOf[s]]||{}; const st=W.set; const tu=W.types[C.typeOf[Math.min(k,M.nL-2)]]||{};
+  const ly=(id,label)=>`<label class="ly"><input type="checkbox" data-ly="${id}" ${view.hide.has(id)?'':'checked'}>${label}</label>`;
+  const row=(v,txt)=>`<div class="crow">${v?V_ICON[v]:'•'} ${txt}</div>`;
+  let h=`<div class="cons"><div class="note">CONSTRAINTS (${esc(M.L[k].name)})</div>`;
+  // restricted zones on this plan
+  const zs=M.zones.filter(z=>!['footprint','core','outside'].includes(z.type)&&((k-1>=0&&M.zAct(z,k-1))||(k<=M.nL-2&&M.zAct(z,k))));
+  h+=ly('zone','<b>Restricted zones</b>');
+  if (!zs.length) h+=row(null,'none on this floor');
+  zs.forEach(z=>{ const clash=R.checks.some(c=>c.cat==='Column clash'&&c.v==='fail'&&c.item.includes(z.name)); const nOff=Object.values(R.offsets).filter(o=>(o.why||[]).some(w=>w.includes(z.name))).length;
+    h+=row(clash?'fail':'pass',`${esc(z.name)}: no column inside${nOff?` (${nOff} offset)`:''}`); });
+  // spacing
+  const sp=R.checks.find(c=>c.cat==='Column spacing'&&c.where===tu.name);
+  h+=ly('sp',`<b>Column spacing</b> — ${esc(tu.name||'')} (numbers on plan)`);
+  h+=row(sp?sp.v:null, tu.minSp?`required ≥ ${tu.minSp} m ${tu.spType==='e'?'clear':'c/c'}${sp?`; min. provided ${f2(sp.have)} m`:''}`:'no requirement');
+  // structural zone
+  const ty=R.typ.find(x=>x.type===t.name); const z=M.depth[k];
+  if (ty&&z) { const d=ty.flat?ty.flat.drop:Math.max(ty.Dm||0,ty.Ds||0); h+=`<div class="crow"><b>Structural zone</b></div>`+row(d<=z+1e-9?'pass':verdictOf(d/z,st.tol),`${f0(z*1000)} mm; ${ty.flat?'drop panel':'deepest beam'} ${f0(d*1000)} mm`); }
+  // edge, cantilever
+  const nEdge=Object.values(R.offsets).filter(o=>(o.why||[]).some(w=>w.startsWith('building edge'))).length;
+  h+=`<div class="crow"><b>Building edge</b></div>`+row('pass',`column faces inside edge${nEdge?` (${nEdge} offset)`:''}`);
+  const cants=R.checks.filter(c=>c.cat==='Cantilever span'&&c.where.startsWith(t.name));
+  if (cants.length) h+=row(cants.some(c=>c.v==='fail')?'fail':'pass',`cantilever ≤ ${sc.mat==='rc'?st.cantRC:st.cantSt} m (max. ${f2(Math.max(...cants.map(c=>c.need)))} m)`);
+  h+=ly('ct','<b>Column types</b>')+Object.values(R.groups||{}).sort((a,b)=>a.id.localeCompare(b.id)).map(G=>row(null,`${G.id} ${f0(G.side*1000)} SQ.${G.desc?' — '+G.desc.toLowerCase():''}`)).join('');
+  const n=planChecks(E,grp); h+=ly('ng',`<b>Problems on plan</b> (${n.length})`);
+  return h+'</div>';
+}
+function prosCons(e){
+  const P=[], C=[]; const sg=sigOf(e);
+  if (e.sc.mat==='rc'){ P.push('Low material cost, local labour familiar','Inherent fire resistance, robust and durable','Good stiffness against wind'); C.push('Heavy self-weight → larger foundation','Formwork and curing → longer programme'); }
+  else { P.push('Fast erection, prefabricated off site','Light weight → smaller columns and foundation','Long spans with shallow sections'); C.push('Higher material cost','Fire and corrosion protection required','Specialist fabrication / site welding control'); }
+  if (sg.floor==='FLAT SLAB'){ P.push('No downstand beams → minimum structural depth, free MEP routing','Simple flat formwork'); C.push('Punching shear at columns (drops / links)','Thicker, heavier slab'); }
+  if (e.lay.id!=='A'){ P.push('Fewer columns → more flexible, column-free floor space'); C.push('Long-span girders are deeper and heavier','Larger column loads'); }
+  if (sg.tr.includes('STOREY-DEEP')){ P.push('Transfer within plant / refuge floor depth — no headroom loss'); C.push('Openings in storey-deep members restricted'); }
+  if (sg.tr.includes('PLATE')){ P.push('Plate accommodates any column arrangement above'); C.push('Very heavy, large concrete pour, heat of hydration'); }
+  if (sg.tr.includes('HANGER')){ P.push('Lower floors column-free'); C.push('Roof truss carries hung floors — sequence and deflection critical'); }
+  if (sg.tr.includes('INCLINED')){ P.push('No heavy transfer member'); C.push('Horizontal kick-out forces at floor diaphragms'); }
+  return {P,C};
+}
+function recHTML(L){
+  const r=recPair(L); if(!r) return `<div class="card rec fail"><b>No viable scheme found.</b> Check the governing issues in the catalogue.</div>`;
+  if (!r.b) return `<div class="card rec marg"><b>Only one distinct viable scheme: ${esc(r.a.sc.id)}.</b> All other viable schemes have the same column layout, floor system and transfer system — changing material only is <b>not</b> a distinct scheme (HKIE). Try adding constraints / grid alternatives.</div>`;
+  return `<div class="card rec pass"><b>Recommended two distinct and viable schemes:</b> <a href="#" data-go="${r.a.sc.id}">${esc(r.a.sc.id)}</a> and <a href="#" data-go="${r.b.sc.id}">${esc(r.b.sc.id)}</a> — distinct by ${r.d.join(', ')}. <button data-cmp="${r.a.sc.id}|${r.b.sc.id}" class="noprint">Compare side by side</button>
+  ${r.others.length?`<div class="note">Other distinct partners for ${esc(r.a.sc.id)}: ${r.others.map(x=>`<a href="#" data-go="${x.b.sc.id}">${esc(x.b.sc.id)}</a> ${V_ICON[x.b.R.worst]} (${x.d.map(t=>t.split(' (')[0]).join(', ')})`).join('; ')}</div>`:''}
+  <div class="note">HKIE: load path and framing plan must be different; RC vs steel with the same layout is NOT distinct.</div></div>`;
+}
+function appraisalHTML(L){
+  const C0=L[0].C, M0=L[0].M;
+  const zrows=[]; let cur=null; for(let k=M0.nL-1;k>=1;k--){ const z=Math.round(M0.depth[k]*1000), name=M0.L[k-1].name; if(cur&&cur.z===z) cur.to=name; else { cur={from:name,to:name,z}; zrows.push(cur); } }
+  const uses=[...new Set(C0.lv.map(l=>String(l.use||'').toUpperCase()).filter(Boolean))];
+  return `<div class="card"><h2>Design appraisal — ${esc(W.title)}</h2><table class="mini"><tr><th style="width:40%">Client requirement</th><th>Design implication</th></tr>
+  <tr><td>1) COLUMN GRID</td><td>${(W.types||[]).map(t=>`${esc(t.floors||'all')}: ${t.minSp?`min. ${t.minSp} m ${t.spType==='e'?'CLEAR':'C/C'}`:'NO RESTRICTION'}`).join('<br>')}${(W.cons||[]).filter(c=>c.kind==='colfree'||c.kind==='void'||c.kind==='nocol').map(c=>`<br>${esc(c.floors||'all')}: NO COLUMN IN ${esc((c.name||'').toUpperCase())}`).join('')}</td></tr>
+  <tr><td>2) MIN. HEADROOM → ALLOWABLE STRUCTURAL ZONE</td><td>${zrows.map(r=>`${esc(r.to)}${r.from!==r.to?' ~ '+esc(r.from):''}: <b>${f0(r.z)} mm</b>`).join('<br>')}</td></tr>
+  <tr><td>3) IMPOSED LOAD (kPa)</td><td>${uses.map(u=>`${esc(u)}: ${IMPOSED[u]??'—'}`).join('; ')}</td></tr>
+  <tr><td>4) COLUMN LAYOUTS TRIED</td><td>${RES.lays.map(l=>`<b>${l.id}</b>: ${esc(l.short)}`).join('<br>')}</td></tr></table></div>`;
+}
+function naReason(e){ const m=e.sc.must; if(m==='PLATE') return 'No transfer level: no column above is discontinued (columns over the atrium / cinema simply stop), so there is no load to collect on a plate — long-span girders are used instead';
+  if(m==='INCL') return 'No small column offset between floors that an inclined column could take'; if(m==='HANG') return 'No floor that can be hung from a roof truss in this building';
+  if(m==='STRUSS') return 'No long-span member that needs a storey-deep truss (no plant / refuge floor depth at that level)'; if(m==='PT') return 'No long-span member needing PT'; return 'Not needed in this building'; }
+function compareHTML(L){
+  const app=L.filter(e=>e.R.applicable); const r=recPair(L)||{};
+  const [ia,ib]=(view.cmp||`${r.a?r.a.sc.id:app[0].sc.id}|${r.b?r.b.sc.id:(app[1]||app[0]).sc.id}`).split('|');
+  const A=L.find(e=>e.sc.id===ia)||app[0], B=L.find(e=>e.sc.id===ib)||app[1]||app[0];
+  const sel=(id,cur)=>`<select id="${id}">${app.map(e=>`<option value="${e.sc.id}" ${e===cur?'selected':''}>${e.sc.id} ${V_ICON[e.R.worst]} ${esc(e.sc.name.slice(0,60))}</option>`).join('')}</select>`;
+  const d=distinctBy(A,B);
+  let h=`<div class="card"><h2>Compare two schemes</h2><div class="row noprint"><label>Scheme 1${sel('cmpA',A)}</label><label>Scheme 2${sel('cmpB',B)}</label></div>`;
+  h+=A===B?`<div class="err">Same scheme selected.</div>`:(!d.length&&weakDiff(A,B))?`<div class="rec marg" style="padding:6px 10px">⚠️ <b>WEAK</b> — same column layout and floor system; only the transfer member type differs (${esc(sigOf(A).tr)} vs ${esc(sigOf(B).tr)})${A.sc.mat!==B.sc.mat?' and the material':''}. An examiner may treat this as NOT distinct.</div>`:d.length?`<div class="rec pass" style="padding:6px 10px">✅ <b>DISTINCT</b> — differs in ${d.join(', ')}.${A.R.worst==='fail'||B.R.worst==='fail'?' <b class="ng">But one of them is NOT feasible.</b>':''}</div>`:`<div class="rec fail" style="padding:6px 10px">❌ <b>NOT DISTINCT</b> — same column layout, same floor system and same transfer system${A.sc.mat!==B.sc.mat?'; only the material differs (HKIE: not a distinct solution)':''}.</div>`;
+  const cell=e=>{ const sg=sigOf(e), pc=prosCons(e); const cols=e.R.checks.filter(c=>c.cat==='Column').map(c=>esc(c.item.replace('COLUMN ',''))).join('<br>');
+    const mem=Object.values(e.R.ch).filter(c=>c&&c.tag).map(c=>`${c.tag} ${esc(c.m.level)} ${esc(c.txt)}`).join('<br>')||'—';
+    const worst=e.R.checks.filter(c=>c.v!=='pass').slice(0,4).map(c=>`${V_ICON[c.v]} ${esc(c.item)}`).join('<br>')||'—';
+    return {res:`${V_ICON[e.R.worst]} ${V_TXT[e.R.worst]}`,name:esc(e.sc.name),lay:`<b>${e.lay.id}</b> ${esc(e.lay.short)}`,mat:e.sc.mat==='rc'?'REINFORCED CONCRETE':'STRUCTURAL STEEL (COMPOSITE)',floor:sg.floor,tr:sg.tr,
+      typ:e.R.typ.map(t=>`${esc(t.type)}: ${e.sc.floor==='flat'?esc(t.main):`SLAB ${e.sc.mat==='rc'?W.set.slabRC:W.set.slabComp}, SB ${esc(t.sec)}, MB ${esc(t.main)}`}`).join('<br>'),mem,cols,worst,
+      load:e.sc.floor==='flat'?'SLAB → COLUMN / CORE (+ TRANSFER MEMBER)':`SLAB → SECONDARY BEAM → MAIN BEAM${sg.tr!=='NONE'?' / '+sg.tr:''} → COLUMN / CORE`,
+      pro:pc.P.map(x=>'+ '+esc(x)).join('<br>'),con:pc.C.map(x=>'− '+esc(x)).join('<br>')}; };
+  const a=cell(A), b=cell(B);
+  const rows=[['Result','res'],['Scheme','name'],['Column layout','lay'],['Material','mat'],['Floor system','floor'],['Transfer / long-span','tr'],['Vertical load path','load'],['Typical members','typ'],['Long-span / transfer members','mem'],['Columns','cols'],['Issues','worst'],['Advantages','pro'],['Disadvantages','con']];
+  h+=`<table class="mini cmp"><tr><th style="width:150px"></th><th>${A.sc.id}</th><th>${B.sc.id}</th></tr>${rows.map(([l,k])=>`<tr><th>${l}</th><td>${a[k]}</td><td>${b[k]}</td></tr>`).join('')}</table>`;
+  // plans side by side
+  const gA=planGroups(A.M); const gi=Math.min(view.cmpPlan||0,gA.length-1);
+  h+=`<h3>Framing plans side by side</h3><div class="row noprint"><label>Floor<select id="cmpPlan">${gA.map((g,i)=>`<option value="${i}" ${i===gi?'selected':''}>${esc(A.M.L[g.k1].name)}${g.k2>g.k1?' ~ '+esc(A.M.L[g.k2].name):''}</option>`).join('')}</select></label></div>`;
+  const g=gA[gi]; const gB=planGroups(B.M).find(x=>x.k1<=g.k1&&g.k1<=x.k2)||{k1:g.k1,k2:g.k1};
+  const pa=planSVG2(A,g.k1,g), pb=planSVG2(B,gB.k1,gB);
+  h+=`<div class="sbs"><div><div class="ptitle">${A.sc.id}: ${esc(pa.title)}</div>${pa.svg}${planNotes(A,g)}</div><div><div class="ptitle">${B.sc.id}: ${esc(pb.title)}</div>${pb.svg}${planNotes(B,gB)}</div></div></div>`;
+  return h;
+}
 function renderOut(){
   const h=$('#out');
   if (RES.err){ h.innerHTML=`<div class="card">${RES.err.map(e=>`<div class="err">${esc(e)}</div>`).join('')}</div>`; return; }
-  const L=RES.list; const C0=L[0].C, M0=L[0].M;
-  // design appraisal
-  const zrows=[]; let cur=null; for(let k=M0.nL-1;k>=1;k--){ const z=Math.round(M0.depth[k]*1000), name=M0.L[k-1].name; if(cur&&cur.z===z) cur.to=name; else { cur={from:name,to:name,z}; zrows.push(cur); } }
-  const uses=[...new Set(C0.lv.map(l=>String(l.use||'').toUpperCase()).filter(Boolean))];
-  let html=`<div class="card"><h2>Design appraisal — ${esc(W.title)}</h2><table class="mini"><tr><th style="width:40%">Client requirement</th><th>Design implication</th></tr>
-  <tr><td>1) COLUMN GRID</td><td>${(W.types||[]).map(t=>`${esc(t.floors||'all')}: ${t.minSp?`min. ${t.minSp} m ${t.spType==='e'?'CLEAR':'C/C'}`:'NO RESTRICTION'}`).join('<br>')}${(W.cons||[]).filter(c=>c.kind==='colfree'||c.kind==='void'||c.kind==='nocol').map(c=>`<br>${esc(c.floors||'all')}: NO COLUMN IN ${esc((c.name||'').toUpperCase())}`).join('')}</td></tr>
-  <tr><td>2) MIN. HEADROOM → ALLOWABLE STRUCTURAL ZONE</td><td>${zrows.map(r=>`${esc(r.to)}${r.from!==r.to?' ~ '+esc(r.from):''}: <b>${f0(r.z)} mm</b>`).join('<br>')}</td></tr>
-  <tr><td>3) IMPOSED LOAD (kPa)</td><td>${uses.map(u=>`${esc(u)}: ${IMPOSED[u]??'—'}`).join('; ')}</td></tr></table></div>`;
-  // catalogue
-  const order=L.slice().sort((a,b)=>(b.R.applicable-a.R.applicable)||V_RANK[a.R.worst]-V_RANK[b.R.worst]);
-  html+=`<div class="card"><h2>Scheme catalogue (all schemes)</h2><div class="hint">✅ pass &nbsp; ⚠️ slightly off (within ${W.set.tol}%, adjust sizes) &nbsp; ❌ not feasible &nbsp; — not applicable (system not needed in this building). Click a scheme to see its framing plans.</div><table class="mini cat"><tr><th></th><th>Scheme</th><th>Result</th><th>Governing issue</th><th>Column types</th></tr>
-  ${order.map(e=>{ const worst=e.R.checks.filter(c=>c.v===e.R.worst&&e.R.worst!=='pass').slice(0,2); const cols=e.R.checks.filter(c=>c.cat==='Column');
-    const res=!e.R.applicable?'<span class="na">— NOT APPLICABLE</span>':`${V_ICON[e.R.worst]} ${V_TXT[e.R.worst]}`;
-    return `<tr data-id="${e.sc.id}" class="${view.scheme===e.sc.id?'sel':''} ${!e.R.applicable?'dim':''}"><td>${e.sc.id}</td><td>${esc(e.sc.name)}${e.sc.note?`<div class="note">${esc(e.sc.note)}</div>`:''}</td><td style="white-space:nowrap">${res}</td><td>${!e.R.applicable?esc(`No ${e.sc.must==='PLATE'?'transfer level':e.sc.must==='INCL'?'small offset columns':e.sc.must==='HANG'?'floor that can be hung':e.sc.must==='STRUSS'?'member needing a storey-deep truss':'member needing it'} in this building`):worst.map(c=>`${esc(c.item)} — ${esc(c.where)}: ${esc(c.calc)}`).join('<br>')||'—'}</td><td style="white-space:nowrap">${cols.map(c=>esc(c.item.replace('COLUMN ',''))).join('<br>')}</td></tr>`; }).join('')}</table></div>`;
-  const E=L.find(e=>e.sc.id===view.scheme)||order[0]; view.scheme=E.sc.id;
-  html+=schemeHTML(E);
-  h.innerHTML=html;
-  h.querySelectorAll('.cat tr[data-id]').forEach(tr=>tr.onclick=()=>{ view.scheme=tr.dataset.id; renderOut(); });
-  bindReport(E);
+  const L=RES.list; view.tab=view.tab||'schemes';
+  let html=`<div class="outtabs noprint">${[['appraisal','1. Design appraisal'],['schemes','2. Schemes'],['compare','3. Compare two schemes']].map(([k,l])=>`<button data-tab="${k}" class="${view.tab===k?'on':''}">${l}</button>`).join('')}</div>`;
+  if (view.tab==='appraisal') html+=appraisalHTML(L);
+  else if (view.tab==='compare') html+=compareHTML(L);
+  else {
+    html+=recHTML(L);
+    const order=L.slice().sort((a,b)=>(b.R.applicable-a.R.applicable)||V_RANK[a.R.worst]-V_RANK[b.R.worst]||(a.lay.id<b.lay.id?-1:a.lay.id>b.lay.id?1:0));
+    const rowH=e=>{ const worst=e.R.checks.filter(c=>c.v===e.R.worst&&e.R.worst!=='pass').slice(0,2); const cols=e.R.checks.filter(c=>c.cat==='Column');
+      const res=!e.R.applicable?'<span class="na">— NOT APPLICABLE</span>':`${V_ICON[e.R.worst]} ${V_TXT[e.R.worst]}`;
+      return `<tr data-id="${e.sc.id}" class="${view.scheme===e.sc.id?'sel':''} ${!e.R.applicable?'dim':''}"><td>${e.sc.id}</td><td>${esc(e.sc.name)}${e.sc.note?`<div class="note">${esc(e.sc.note)}</div>`:''}</td><td>${e.lay.id}</td><td style="white-space:nowrap">${res}</td><td>${!e.R.applicable?esc(naReason(e)):worst.map(c=>`${esc(c.item)} — ${esc(c.where)}: ${esc(c.calc)}`).join('<br>')||'—'}</td><td style="white-space:nowrap">${cols.map(c=>esc(c.item.replace('COLUMN ',''))).join('<br>')}</td></tr>`; };
+    const app=order.filter(e=>e.R.applicable), na=order.filter(e=>!e.R.applicable);
+    html+=`<div class="card"><h2>Scheme catalogue (all schemes)</h2><div class="hint">✅ pass &nbsp; ⚠️ slightly off (within ${W.set.tol}%, adjust sizes) &nbsp; ❌ not feasible &nbsp; — not applicable. Layout: ${RES.lays.map(l=>`<b>${l.id}</b> = ${esc(l.short)}`).join('; ')}. Click a scheme to see its framing plans.</div><table class="mini cat"><tr><th></th><th>Scheme</th><th>Layout</th><th>Result</th><th>Governing issue / reason</th><th>Column types</th></tr>
+    ${app.map(rowH).join('')}${na.length?`<tr><td colspan="6" class="na"><b>Not applicable (${na.length})</b> — the system is not needed in this building:</td></tr>`+na.map(rowH).join(''):''}</table></div>`;
+    const E=L.find(e=>e.sc.id===view.scheme)||order[0]; view.scheme=E.sc.id;
+    html+=schemeHTML(E);
+    h.innerHTML=html; bindOut(); bindReport(E); return;
+  }
+  h.innerHTML=html; bindOut();
 }
+function bindOut(){
+  const h=$('#out');
+  h.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ view.tab=b.dataset.tab; renderOut(); });
+  h.querySelectorAll('.cat tr[data-id]').forEach(tr=>tr.onclick=()=>{ view.scheme=tr.dataset.id; renderOut(); });
+  h.querySelectorAll('[data-go]').forEach(a=>a.onclick=ev=>{ ev.preventDefault(); view.scheme=a.dataset.go; view.tab='schemes'; renderOut(); });
+  h.querySelectorAll('[data-cmp]').forEach(b=>b.onclick=()=>{ view.cmp=b.dataset.cmp; view.tab='compare'; renderOut(); });
+  const ca=$('#cmpA'), cb=$('#cmpB'); if(ca&&cb){ const f=()=>{ view.cmp=ca.value+'|'+cb.value; renderOut(); }; ca.onchange=f; cb.onchange=f; }
+  const cp=$('#cmpPlan'); if(cp) cp.onchange=()=>{ view.cmpPlan=+cp.value; renderOut(); };
+  h.querySelectorAll('input[data-ly]').forEach(c=>c.onchange=()=>{ const id=c.dataset.ly; if(c.checked) view.hide.delete(id); else view.hide.add(id); applyLayers(); });
+  applyLayers();
+}
+function applyLayers(){ const h=$('#out'); ['zone','sp','ct','ng'].forEach(id=>h.classList.toggle('hide-'+id,view.hide.has(id))); h.querySelectorAll('input[data-ly]').forEach(c=>c.checked=!view.hide.has(c.dataset.ly)); }
 function schemeHTML(E){
   const {sc,M,R}=E;
   const groups=planGroups(M);
   let h=`<div class="card sheet"><h2>Scheme ${sc.id}: ${esc(sc.name)} — ${R.applicable?V_ICON[R.worst]+' '+V_TXT[R.worst]:'— NOT APPLICABLE'}</h2>`;
+  h+=`<p><b>COLUMN LAYOUT ${esc(E.lay.id)}:</b> ${esc(E.lay.short)} &nbsp; <b>FLOOR:</b> ${sc.floor==='flat'?'FLAT SLAB (NO BEAMS)':'BEAM AND SLAB'}</p>`;
   h+=`<h3>A. Material</h3><p class="u">${sc.mat==='rc'?'RC is selected because it provides high strength / low cost structure with good rigidity and robustness; durable and resists weathering; low maintenance cost.':'Steel is selected because of its high strength to weight ratio, simplicity of assembly, and light weight which reduces foundation cost.'}</p>`;
   h+=`<h3>B. Floor plans</h3>${LEGEND}`;
-  groups.forEach(g=>{ const p=planSVG2(E,g.k1,g); h+=`<div class="planbox"><div class="planimg">${p.svg}<div class="ptitle">${esc(p.title)}</div></div>${keyPlan(M,g)}</div>`; });
+  groups.forEach(g=>{ const p=planSVG2(E,g.k1,g); h+=`<div class="planbox"><div class="planimg">${p.svg}<div class="ptitle">${esc(p.title)}</div>${planNotes(E,g)}</div><div class="side">${keyPlan(M,g)}${planSide(E,g)}</div></div>`; });
   h+=`<h3>Member summary</h3><table class="mini"><tr><th>Floor type</th><th>Slab</th><th>Secondary beam</th><th>Main beam</th><th>Zone</th></tr>${R.typ.map(t=>`<tr><td>${esc(t.type)} (${esc(t.floors)})</td><td>${sc.mat==='rc'?W.set.slabRC:W.set.slabComp} THK @ ${f2(t.ls)} m</td><td>${esc(t.sec)}</td><td>${esc(t.main)}</td><td>${f0(t.zone*1000)}</td></tr>`).join('')}</table>`;
   h+=`<h3>Feasibility (your template rules)</h3><table class="mini"><tr><th></th><th>Item</th><th>Where</th><th>Check</th><th>Ratio</th><th>If slightly off</th></tr>${R.checks.slice().sort((a,b)=>V_RANK[b.v]-V_RANK[a.v]).map(c=>`<tr class="v-${c.v}"><td>${V_ICON[c.v]}</td><td>${esc(c.item)}</td><td>${esc(c.where)}</td><td>${esc(c.calc)}</td><td>${c.ratio>0?f2(c.ratio):''}</td><td>${c.v==='marg'?esc(c.fix):''}</td></tr>`).join('')}</table>`;
   const tr=[...R.used].filter(u=>['RCWALL','PLATE','INCL','HANG','STRUSS','PT'].includes(u));
@@ -569,8 +772,9 @@ function reportBlocks(E){
   const {sc,R}=E, st=W.set, B=[]; const mm=x=>Math.round(x*1000);
   // typical members: one block set per distinct typical bay
   const seen=new Set();
-  R.typ.forEach(t=>{ const key=`${f2(t.ls)}|${t.shortD}|${t.longD}|${t.sec}|${t.main}`; if(seen.has(key)) return; seen.add(key);
-    const tag=R.typ.filter(x=>`${f2(x.ls)}|${x.shortD}|${x.longD}|${x.sec}|${x.main}`===key).map(x=>x.type).join(', ');
+  R.typ.forEach(t=>{ const key=`${f2(t.ls)}|${t.shortD}|${t.longD}|${t.sec}|${t.main}|${t.zone}`; if(seen.has(key)) return; seen.add(key);
+    const tag=R.typ.filter(x=>`${f2(x.ls)}|${x.shortD}|${x.longD}|${x.sec}|${x.main}|${x.zone}`===key).map(x=>x.type).join(', ');
+    if (t.flat){ B.push({id:'flat_'+key,kind:'flat',title:`FLAT SLAB WITH DROP PANELS (${tag})`,v:{L:mm(t.flat.Lf),t:mm(t.flat.t),drop:mm(t.flat.drop),Ld:mm(t.flat.Ld),Z:mm(t.zone)}}); return; }
     B.push({id:'slab_'+key,kind:'slab',title:`SLAB (${tag})`,v:{L:mm(t.ls),t:mm(t.tSlab)}});
     if (sc.mat==='rc'){
       B.push({id:'sb_'+key,kind:'sb',title:`SECONDARY BEAM B1 (${tag})`,v:{L:mm(t.shortD),D:mm(t.Ds),B:mm(t.Bs),Z:mm(t.zone)}});
@@ -591,6 +795,7 @@ function reportBlocks(E){
   const plate=R.checks.find(c=>c.cat==='Transfer plate'); if (plate) B.push({id:'plate',kind:'plate',title:`TRANSFER PLATE (${plate.where})`,v:{L:mm(plate.need*W.set.plateRatio),t:mm(plate.need),Z:mm(plate.have)}});
   Object.values(R.groups||{}).sort((a,b)=>a.id.localeCompare(b.id)).forEach(G=>{ const c=G.crit; if(!c) return;
     B.push({id:'col_'+G.id,kind:'col',title:`COLUMN ${G.id}${G.desc?' — '+G.desc:''} (${G.count} NOS., GOVERNING ${c.p.label} AT ${E.M.L[c.s].name})`,v:{n:c.nfl,A:Math.round(c.area/Math.max(1,c.nfl)),q:sc.mat==='rc'?st.kRC:st.kSt,ef:st.ef,k:sc.mat==='rc'?st.nRC:st.nComp,side:mm(G.side),H:mm(E.M.L[c.s].h),P:Math.round(c.load-(sc.mat==='rc'?st.kRC:st.kSt)*c.area*st.ef)}}); });
+  Object.values(R.groups||{}).sort((a,b)=>a.id.localeCompare(b.id)).forEach(G=>{ if(!G.punch) return; B.push({id:'pun_'+G.id,kind:'punch',title:`PUNCHING SHEAR AT COLUMN ${G.id}`,v:{V:Math.round(G.punch.V),c:mm(G.side),d:mm(G.punch.d),beta:G.punch.beta,vc:st.vcFlat,fcu:st.fcuB}}); });
   // apply saved overrides
   const ov=((W.ovr||{})[sc.id])||{};
   B.forEach(b=>{ b.def={...b.v}; Object.assign(b.v,ov[b.id]||{}); b.ovr=ov[b.id]||{}; });
@@ -620,6 +825,10 @@ function calcBlock(b){
       L=[`SPAN ${I('L')} m, SLAB SPAN ${I('ls')} m, WULS ${I('w')} kPa, LL ${I('ll')} kPa`,`MREQ. = ${n(v.w)} x ${n(v.ls)} x ${Lm}² / 8 / 1.6 = ${f0(Mreq)} kNm`,`IREQ. = 2.29 x (${n(v.ll)} x ${n(v.ls)}) x ${Lm}³ / 2.8 = ${f0(Ireq)} cm4`,sec?`∴ USE ${sec[0]} (GRADE S355) (MC = ${f0(sec[2])} kNm, I = ${f0(sec[1])} cm4)   D ≤ ZONE ${I('Z')}  ${okTxt(ratio)}`:`NO ROLLED SECTION → PLATE GIRDER`]; break; }
     case 'smb': { const Lm=n(v.L), np=Math.max(1,Math.round(n(v.n))), k1=[0,3.66,3.12,2.9,2.77][Math.min(np,4)], k2=[0,0.25,0.333,0.5,0.6][Math.min(np,4)], P=n(v.w)*n(v.ls)*n(v.Lsb), PL=n(v.ll)*n(v.ls)*n(v.Lsb), Mreq=k2*P*Lm/1.6, Ireq=np*k1*PL*Lm*Lm/2.8, sec=pickSec(UB355,Mreq,Ireq); const D=sec?secDepth(sec[0])*1000:Lm*1000/15; ratio=D/n(v.Z);
       L=[`SPAN ${I('L')} m, ${I('n')} POINT LOADS FROM SB (SB SPAN ${I('Lsb')} m, SLAB SPAN ${I('ls')} m), WULS ${I('w')} kPa, LL ${I('ll')} kPa`,`PSB = ${f0(P)} kN (BOTH SIDES);  k1 = ${k1}, k2 = ${k2}`,`MREQ. = k2 x PSB x L / 1.6 = ${f0(Mreq)} kNm`,`IREQ. = n x k1 x PSB,LL x L² / 2.8 = ${f0(Ireq)} cm4`,sec?`∴ USE ${sec[0]} (GRADE S355) (MC = ${f0(sec[2])} kNm, I = ${f0(sec[1])} cm4)   D ≤ ZONE ${I('Z')}  ${okTxt(ratio)}`:`NO ROLLED SECTION → PLATE GIRDER`]; break; }
+    case 'flat': { const d=n(v.t)-40, r=n(v.L)/d; ratio=Math.max(r/st.sdFlat,n(v.drop)/n(v.Z));
+      L=[`FLAT SLAB : ${I('t')} THK., DROP PANEL ${I('drop')} THK. x ${I('Ld')} SQ. (≈ L/3)`,`L / d = ${I('L')} / ${d} = ${f1(r)} ${lt(r,st.sdFlat)} ${st.sdFlat} (CONTINUOUS, WITH DROPS)    ${okTxt(r/st.sdFlat)}`,`DROP ${n(v.drop)} ${n(v.drop)<=n(v.Z)?'≤':'>'} ZONE ${I('Z')}    ${okTxt(n(v.drop)/n(v.Z))}`]; break; }
+    case 'punch': { const c=n(v.c), d=n(v.d), u1=4*(c+3*d), v1=n(v.beta)*n(v.V)*1000/(u1*d), v0=n(v.V)*1000/(4*c*d), vm=0.8*Math.sqrt(n(v.fcu)); ratio=Math.max(v1/(2*n(v.vc)),v0/vm);
+      L=[`V = ${I('V')} kN (PER FLOOR), COLUMN ${I('c')} SQ., d = ${I('d')} (AT DROP)`,`u1 = 4 (c + 3d) = ${f0(u1)} mm;  β = ${I('beta')}`,`v = βV / (u1 d) = ${f2(v1)} MPa ${lt(v1,2*n(v.vc))} 2vc = 2 x ${I('vc')} = ${f2(2*n(v.vc))} MPa (WITH SHEAR LINKS)    ${okTxt(v1/(2*n(v.vc)))}`,`v0 = V / (4c d) = ${f2(v0)} MPa ${lt(v0,vm)} 0.8√${I('fcu')} = ${f2(vm)} MPa    ${okTxt(v0/vm)}`]; break; }
     case 'plate': { const r=n(v.L)/n(v.t); ratio=Math.max(n(v.t)/n(v.Z),(st.plateRatio/r)>1?1:r/st.plateRatio*0); L=[`TRANSFER PLATE : ${I('t')} THK., MAX. SPAN ${I('L')} mm`,`SPAN / THK = ${f1(r)} (≤ ${st.plateRatio} ASSUMED)`,`THK. ${n(v.t)} ≤ AVAILABLE ${I('Z')} mm    ${okTxt(n(v.t)/n(v.Z))}`]; ratio=n(v.t)/n(v.Z); break; }
     case 'col': { const P=n(v.q)*n(v.A)*n(v.n)*n(v.ef)+n(v.P), Ac=P*1000/n(v.k), prov=n(v.side)**2; ratio=Math.max(Ac/prov,(n(v.H)/n(v.side))/st.slenderBraced);
       L=[`NO. OF STOREY = ${I('n')}`,`TRIBUTARY AREA = ${I('A')} m2`,`ASSUME ${I('q')} kPa / FLOOR`,`LOADING = ${n(v.q)} x ${n(v.A)} x ${n(v.n)} x ${I('ef')} + ${I('P')} (FROM TRANSFER) = ${f0(P)} kN`,`N = ${I('k')} Ac  →  Ac = ${f0(Ac)} mm2`,`∴ PROVIDE ${I('side')} x ${n(v.side)} (Ac,PROV = ${f0(prov)} mm2)    ${okTxt(Ac/prov)}`,`SLENDERNESS = H / D = ${I('H')} / ${n(v.side)} = ${f1(n(v.H)/n(v.side))} ${lt(n(v.H)/n(v.side),st.slenderBraced)} ${st.slenderBraced} (BRACED)    ${okTxt(n(v.H)/n(v.side)/st.slenderBraced)}`]; break; }
@@ -634,7 +843,7 @@ function reportHTML(E){
   h+=`<div class="blk"><b>SCHEME ${E.sc.id}:</b> ${ed('name',E.sc.name)}</div>`;
   h+=`<div class="blk"><b>FEASIBILITY CHECK</b></div>`;
   blocks.forEach(b=>{ const r=calcBlock(b); h+=`<div class="blk ${r.v}" data-blk="${esc(b.id)}"><b>${esc(b.title)}</b> ${V_ICON[r.v]}\n<span class="body">${r.html}</span></div>`; });
-  h+=`<div class="blk"><b>D. VERTICAL LOAD TRANSFER AND STABILITY</b>\n${ed('vert',E.sc.mat==='rc'?'IT IS PROVIDED BY COLUMN AND CORE WALL DOWN TO FOUNDATION.\nSLAB → SECONDARY BEAM → MAIN BEAM / TRANSFER MEMBER → COLUMN / CORE WALL → PILE CAP → FOUNDATION.':'IT IS PROVIDED BY COMPOSITE COLUMN AND BRACED CORE WALL DOWN TO FOUNDATION.\nSLAB → SECONDARY BEAM → MAIN BEAM / TRANSFER TRUSS → COMPOSITE COLUMN / BRACED CORE WALL → PILE CAP → FOUNDATION.')}</div>`;
+  h+=`<div class="blk"><b>D. VERTICAL LOAD TRANSFER AND STABILITY</b>\n${ed('vert',E.sc.floor==='flat'?'IT IS PROVIDED BY COLUMN AND CORE WALL DOWN TO FOUNDATION.\nFLAT SLAB (WITH DROP PANELS) → COLUMN / TRANSFER MEMBER → COLUMN / CORE WALL → PILE CAP → FOUNDATION.':E.sc.mat==='rc'?'IT IS PROVIDED BY COLUMN AND CORE WALL DOWN TO FOUNDATION.\nSLAB → SECONDARY BEAM → MAIN BEAM / TRANSFER MEMBER → COLUMN / CORE WALL → PILE CAP → FOUNDATION.':'IT IS PROVIDED BY COMPOSITE COLUMN AND BRACED CORE WALL DOWN TO FOUNDATION.\nSLAB → SECONDARY BEAM → MAIN BEAM / TRANSFER TRUSS → COMPOSITE COLUMN / BRACED CORE WALL → PILE CAP → FOUNDATION.')}</div>`;
   h+=`<div class="blk"><b>E. HORIZONTAL LOAD TRANSFER AND STABILITY</b>\n${ed('hor','IT IS PROVIDED BY BEAM-COLUMN FRAMEWORK AND CORE WALL DOWN TO FOUNDATION. FRAMEWORK WILL CARRY SMALL PORTION OF WIND FORCE DUE TO RELATIVELY SMALL STIFFNESS AND WILL NOT DOMINATE THE DESIGN.\nWIND LOAD → EXTERNAL CLADDING → SLAB (DIAPHRAGM ACTION) → CORE WALL / BEAM-COLUMN FRAMEWORK → PILE CAP → FOUNDATION.')}</div>`;
   h+=`<div class="blk"><b>F. ROBUSTNESS</b>\n${ed('rob','EFFECTIVE HORIZONTAL AND VERTICAL TIES; DESIGN FOR MIN. HORIZONTAL FORCE; PROVIDE ALTERNATIVE LOAD PATH; DESIGNED TO ACT AS A MONOLITHIC STRUCTURE.')}</div>`;
   h+=`<div class="blk"><b>G. OTHER CONSIDERATION</b>\n${ed('oth',(E.M.lateral&&E.M.lateral.cores.length&&(E.M.lateral.rx>0.1||E.M.lateral.ry>0.1)?`TORSION: TWISTING OF THE CORE DUE TO THE UNSYMMETRICAL LAYOUT OF THE CORE (EX = ${f1(E.M.lateral.ex)} m) SHALL BE CHECKED IN DETAILED DESIGN STAGE.\n`:'')+'DEFLECTION: ACTUAL DEFLECTION OF CORE AND TRANSFER / LONG-SPAN MEMBERS SHALL BE CHECKED IN DETAILED DESIGN STAGE.\nFIRE RESISTANCE: '+(E.sc.mat==='rc'?'PROVIDE SUFFICIENT CONCRETE COVER.':'MINERAL FIBRE SPRAY / INTUMESCENT PAINT. CORROSION: PAINT COATING / HOT-DIP GALVANIZING.'))}</div>`;

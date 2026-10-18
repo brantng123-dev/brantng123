@@ -53,6 +53,17 @@ svg text{font-family:-apple-system,"Helvetica Neue",Arial,sans-serif}
 .rep .res{font-weight:700}
 .rep .ok{color:var(--pass);font-weight:700}.rep .ng{color:var(--fail);font-weight:700}.rep .mg{color:var(--marg);font-weight:700}
 .rep [contenteditable]{outline:none;border-bottom:1px dashed transparent}.rep [contenteditable]:hover{border-bottom-color:#bbb}.rep [contenteditable]:focus{background:#f3f7ff}
+/* output tabs, plan side panel, notes, compare */
+.outtabs{display:flex;gap:4px;margin-bottom:8px}.outtabs button{padding:5px 12px;font-weight:600}.outtabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.side{display:flex;flex-direction:column;gap:8px;width:230px;flex:none}
+.cons{font-size:11.5px;border:1px solid var(--line);padding:5px 7px;line-height:1.45;background:#fafbfc}
+.cons .ly{display:flex;gap:5px;align-items:center;margin-top:6px}.cons .crow{padding-left:4px}
+.pnotes{font-size:12px;margin-top:6px;padding:5px 8px;border-left:3px solid var(--fail);background:#fff5f5}.pnotes.marg{border-color:var(--marg);background:#fffaf0}
+.rec{border-left:4px solid var(--pass)}.rec.fail{border-color:var(--fail);background:#fff5f5}.rec.marg{border-color:var(--marg);background:#fffaf0}
+.sbs{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sbs>div{min-width:0}
+table.cmp td{width:42%}
+.hide-zone .ly-zone,.hide-sp .ly-sp,.hide-ct .ly-ct,.hide-ng .ly-ng{display:none}
+@media (max-width:800px){.planbox{flex-direction:column}.side{width:auto}.sbs{grid-template-columns:1fr}}
 @media print{header,.steps,#stepsWrap,.noprint{display:none!important}body{background:#fff}.card{border:none;padding:0}.rep input.cell{background:none;border:none}}
 </style>
 </head>
