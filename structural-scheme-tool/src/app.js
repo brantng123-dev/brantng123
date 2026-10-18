@@ -237,6 +237,7 @@ function* layoutGen(W){
         for (const arr of lines.values()){ arr.sort((a,b)=>a-b); for(let i=0;i<arr.length-1;i++){ const d=arr[i+1]-arr[i]-(t.spType==='e'?0.75:0); worstSp=Math.min(worstSp,d/need); if(d<need-1e-6) return null; } } }
       const fp=Ml.zones.filter(z=>z.type==='footprint'&&Ml.zAct(z,s)); if(!cols.length) continue;
       for (const z of fp){ const xs=cols.map(p=>p.x), ys=cols.map(p=>p.y); const c=Math.max(Math.min(...xs)-z.x1,z.x2-Math.max(...xs),Math.min(...ys)-z.y1,z.y2-Math.max(...ys)); if(c>7+1e-6) return null; } }
+    if (Object.values(Ml.levelInfo).some(li=>li.unresolved&&li.unresolved.length)) return null;
     const spans=Ml.members.map(m=>m.span); const mx=spans.length?Math.max(...spans):0; if(mx>30) return null;
     const nCol=Ml.pts.filter(p=>Ml.col.some(row=>row[p.id]==='col'||row[p.id]==='edge')).length;
     // uniform column spacing is preferred: penalise (longest - shortest bay) / mean bay on every grid used
@@ -382,6 +383,7 @@ function assess(W,sc,C,M){
     ch[m.id]={...best,tag,v:c.v,m,P,wTrib:10}; used.add(best.sys);
     if ((best.sys==='STRUSS'||best.sys==='RCWALL')&&best.where==='above') covered.add(`${m.k+1}|${geo}`);
   }
+  Object.values(M.levelInfo).forEach(li=>{ if(li.unresolved&&li.unresolved.length&&!plateLv.has(li.k)) add({cat:'Transfer',where:L[li.k].name,item:`COLUMNS ${li.unresolved.slice(0,4).map(t=>t.label).join(', ')}${li.unresolved.length>4?' …':''} HAVE NO TRANSFER SUPPORT`,calc:`${li.unresolved.length} column(s) above sit on no lower column, wall or transfer beam line in either direction`,need:2,have:1,ratio:2,strict:true,fix:''}); });
   const applicable=!sc.must||used.has(sc.must);
   /* --- typical framing per floor type --- */
   const typ=[];
