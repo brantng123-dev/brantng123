@@ -608,6 +608,23 @@ function issues(M){
     add(okList.length?(m.carries?'high':'mid'):'high',
       `${where}: ${m.cant?'cantilever':'span'} ${f(m.span,1)} m, available depth ${f(m.avail)} m${m.voidName?' (over '+m.voidName+')':''}${m.carries?', supports column(s) / wall(s) above':''}${m.secondary?', secondary transfer':''}${m.stacked?', [STACKED TRANSFER: its support is also transferred]':''} → feasible: ${okList.join(', ')||'none (revise column layout, use transfer plate or another system)'}`);
   });
+  // Columns continuing through a level with no slab around them (void / double height / open edge): longer unbraced length
+  const runs=[];
+  M.pts.forEach(p=>{
+    let r=null;
+    for (let k=1;k<=M.nL-2;k++){
+      const through=M.present(M.col[k-1][p.id])&&M.present(M.col[k][p.id])&&M.col[k][p.id]!=='core'&&!M.nodeSlab(k,p.x,p.y);
+      if (through){ if(!r) r={p,k1:k,k2:k}; r.k2=k; } else if (r){ runs.push(r); r=null; }
+    }
+    if (r) runs.push(r);
+  });
+  const byRange=new Map();
+  runs.forEach(r=>{ const key=r.k1+'|'+r.k2; if(!byRange.has(key)) byRange.set(key,{k1:r.k1,k2:r.k2,pts:[]}); byRange.get(key).pts.push(r.p.label); });
+  byRange.forEach(g=>{
+    let H=0; for(let s=g.k1-1;s<=g.k2;s++) H+=M.L[s].h||0;
+    add('mid',`${g.pts.length} column(s) (e.g. ${g.pts.slice(0,5).join(', ')}) have no slab at ${M.L.slice(g.k1,g.k2+1).map(l=>l.name).join(', ')} → unbraced over ${f(H,1)} m (${M.L[g.k1-1].name} to ${M.L[g.k2+1].name}): check slenderness / buckling; consider larger sections or tie beams`);
+  });
+  M.zones.filter(z=>(z.type==='dbl'||z.type==='void')&&z.s2>z.s1).forEach(z=>add('info',`${z.name}: slab edges along the zone boundary at ${M.L.slice(z.s1+1,z.s2+1).map(l=>l.name).join(', ')} need edge beams; balustrade / façade loads at the opening edge`));
   if (M.wallOnCols.length) add('info',`${M.wallOnCols.length} wall(s) supported by columns at both ends but no wall below: the wall can span as a deep beam (check manually)`);
   const allSp=M.grids.flatMap(g=>g.cols?[...g.gx.sp,...g.gy.sp]:[]);
   if (allSp.length){
