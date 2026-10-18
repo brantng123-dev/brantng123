@@ -1289,11 +1289,11 @@ function naReason(e){ const m=e.sc.must; if(m==='PLATE') return 'No transfer lev
   if(m==='INCL') return 'No small column offset between floors that an inclined column could take'; if(m==='HANG') return 'No floor that can be hung from a roof truss in this building';
   if(m==='STRUSS') return 'No long-span member that needs a storey-deep truss (no plant / refuge floor depth at that level)'; if(m==='PT') return 'No long-span member needing PT'; return 'Not needed in this building'; }
 function compareHTML(L){
-  const app=L.filter(e=>e.R.applicable).sort((a,b)=>V_RANK[a.R.worst]-V_RANK[b.R.worst]);
+  const app=L.filter(feasibleE).sort((a,b)=>V_RANK[a.R.worst]-V_RANK[b.R.worst]);
   const r=recPair(L)||{};
   if (!view.cmpSel) view.cmpSel=[r.a,r.b].filter(Boolean).map(e=>e.sc.id);
   const sel=app.filter(e=>view.cmpSel.includes(e.sc.id));
-  let h=`<div class="card"><h2>Compare schemes</h2><div class="hint noprint">Tick the schemes to compare (all applicable schemes are listed). Distinct = different column spacing / layout or transfer vs no transfer or a different transfer principle. Material alone is NOT distinct.</div>
+  let h=`<div class="card"><h2>Compare schemes</h2><div class="hint noprint">Tick the schemes to compare (all viable schemes are listed). Distinct = different column spacing / layout or transfer vs no transfer or a different transfer principle. Material alone is NOT distinct.</div>
   <div class="cmplist noprint">${app.map(e=>`<label><input type="checkbox" data-cmpsel="${e.sc.id}" ${view.cmpSel.includes(e.sc.id)?'checked':''}> <b>${e.sc.id}</b> ${V_ICON[e.R.worst]} ${esc(e.sc.name.toLowerCase())} — <span class="note">${esc(e.lay.short.toLowerCase())}</span></label>`).join('')}</div>`;
   if (!sel.length) return h+'<p>Select at least one scheme.</p></div>';
   // pairwise distinctness
@@ -1308,10 +1308,12 @@ function compareHTML(L){
   const cs=sel.map(cell);
   const rows=[['Result','res'],['Scheme','name'],['Column layout','lay'],['Material','mat'],['Transfer?','tm'],['Transfer / long-span system','tr'],['Vertical load path','load'],['Typical members','typ'],['Long-span / transfer members','mem'],['Columns','cols'],['Issues','worst'],['Advantages','pro'],['Disadvantages','con']];
   h+=`<div style="overflow-x:auto"><table class="mini cmp"><tr><th style="width:130px"></th>${sel.map(e=>`<th>${e.sc.id}</th>`).join('')}</tr>${rows.map(([l,k])=>`<tr><th>${l}</th>${cs.map(c=>`<td>${c[k]}</td>`).join('')}</tr>`).join('')}</table></div>`;
-  const gA=planGroups(sel[0].M); const gi=Math.min(view.cmpPlan||0,gA.length-1);
-  h+=`<h3>Framing plans side by side</h3><div class="row noprint"><label>Floor<select id="cmpPlan">${gA.map((g,i)=>`<option value="${i}" ${i===gi?'selected':''}>${esc(sel[0].M.L[g.k1].name)}${g.k2>g.k1?' ~ '+esc(sel[0].M.L[g.k2].name):''}</option>`).join('')}</select></label></div>`;
-  const g=gA[gi];
-  h+=`<div class="sbs">${sel.map(e=>{ const gb=planGroups(e.M).find(x=>x.k1<=g.k1&&g.k1<=x.k2)||{k1:g.k1,k2:g.k1}; const pp=planSVG2(e,gb.k1,gb); return `<div><div class="ptitle">${e.sc.id}: ${esc(pp.title)}</div>${pp.svg}${planNotes(e,gb)}</div>`; }).join('')}</div></div>`;
+  // every floor, side by side: a new row wherever any selected scheme starts a new plan group
+  const starts=new Set(); sel.forEach(e=>planGroups(e.M).forEach(g=>starts.add(g.k1))); const ks=[...starts].sort((a,b)=>a-b); const nL=sel[0].M.nL;
+  h+=`<h3>Framing plans side by side (all floors)</h3>`;
+  ks.forEach((k,i)=>{ const k2=(ks[i+1]||nL)-1; const nm=`${sel[0].M.L[k].name}${k2>k?' ~ '+sel[0].M.L[k2].name:''}`;
+    h+=`<h3 class="u" style="margin-top:18px">${esc(nm)}</h3><div class="sbs">${sel.map(e=>{ const pp=planSVG2(e,k,{k1:k,k2}); return `<div><div class="ptitle">${e.sc.id}: ${esc(pp.title)}</div>${pp.svg}${planNotes(e,{k1:k,k2})}</div>`; }).join('')}</div>`; });
+  h+='</div>';
   return h;
 }
 function renderOut(){
@@ -1328,9 +1330,9 @@ function renderOut(){
       const res=!e.R.applicable?'<span class="na">— NOT APPLICABLE</span>':`${V_ICON[e.R.worst]} ${V_TXT[e.R.worst]}`;
       return `<tr data-id="${e.sc.id}" class="${view.scheme===e.sc.id?'sel':''} ${!e.R.applicable?'dim':''}"><td>${e.sc.id}</td><td>${esc(e.sc.name)}${e.sc.note?`<div class="note">${esc(e.sc.note)}</div>`:''}</td><td>${e.lay.id}</td><td style="white-space:nowrap">${res}</td><td>${!e.R.applicable?esc(naReason(e)):worst.map(c=>`${esc(c.item)} — ${esc(c.where)}: ${esc(c.calc)}`).join('<br>')||'—'}</td><td style="white-space:nowrap">${cols.map(c=>esc(c.item.replace('COLUMN ',''))).join('<br>')}</td></tr>`; };
     const app=order.filter(e=>e.R.applicable&&e.R.worst!=='fail'), bad=order.filter(e=>e.R.applicable&&e.R.worst==='fail'), na=order.filter(e=>!e.R.applicable);
-    html+=`<div class="card"><h2>Column layouts checked (${RES.lays.length})</h2><div class="hint">Generated from the building length, the minimum column spacing, end cantilevers and the core / restricted-zone edges, then screened (spacing, cantilever, spans). Only the most varied layouts are fully checked (setting “Max. column layouts”).</div><details ${view.layOpen?'open':''} id="layDet"><summary>Show the layout list</summary><table class="mini"><tr><th></th><th>Grid X (bays)</th><th>Grid Y (bays)</th><th>Above transfer level</th><th>Columns over restricted zones</th><th>Viable schemes</th></tr>${RES.lays.map(l=>{ const es=L.filter(e=>e.lay===l&&feasibleE(e)); return `<tr><td><b>${l.id}</b></td><td>${esc(l.bays.x)}${l.arch?' (as given)':''}</td><td>${esc(l.bays.y)}</td><td>${l.band?`from ${esc(L[0].C.names[l.band.u])}: X ${esc(l.ux.txt)}; Y ${esc(l.uy.txt)}`:'—'}</td><td>${l.band?'TWO-BAND (TRANSFER)':l.tmode==='keep'?'CONTINUE → TRANSFERRED':'STOP (NO TRANSFER)'}</td><td>${es.map(e=>`<a href="#" data-go="${e.sc.id}">${e.sc.base}</a> ${V_ICON[e.R.worst]}`).join(', ')||'<span class="ng">none</span>'}</td></tr>`; }).join('')}</table></details></div>`;
+    html+=`<div class="card"><h2>Column layouts with viable schemes (${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).length} of ${RES.lays.length} checked)</h2><div class="hint">Generated from the building length, the minimum column spacing, end cantilevers and the core / restricted-zone edges, then screened (spacing, cantilever, spans). Only the most varied layouts are fully checked (setting “Max. column layouts”).</div><details ${view.layOpen?'open':''} id="layDet"><summary>Show the layout list</summary><table class="mini"><tr><th></th><th>Grid X (bays)</th><th>Grid Y (bays)</th><th>Above transfer level</th><th>Columns over restricted zones</th><th>Viable schemes</th></tr>${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).map(l=>{ const es=L.filter(e=>e.lay===l&&feasibleE(e)); return `<tr><td><b>${l.id}</b></td><td>${esc(l.bays.x)}${l.arch?' (as given)':''}</td><td>${esc(l.bays.y)}</td><td>${l.band?`from ${esc(L[0].C.names[l.band.u])}: X ${esc(l.ux.txt)}; Y ${esc(l.uy.txt)}`:'—'}</td><td>${l.band?'TWO-BAND (TRANSFER)':l.tmode==='keep'?'CONTINUE → TRANSFERRED':'STOP (NO TRANSFER)'}</td><td>${es.map(e=>`<a href="#" data-go="${e.sc.id}">${e.sc.base}</a> ${V_ICON[e.R.worst]}`).join(', ')||'<span class="ng">none</span>'}</td></tr>`; }).join('')}</table></details></div>`;
     html+=`<div class="card"><h2>Scheme catalogue (all schemes)</h2><div class="hint">✅ pass &nbsp; ⚠️ slightly off (within ${W.set.tol}%, adjust sizes) &nbsp; ❌ not feasible &nbsp; — not applicable. Layouts: see table above. Click a scheme to see its framing plans.</div><table class="mini cat"><tr><th></th><th>Scheme</th><th>Layout</th><th>Result</th><th>Governing issue / reason</th><th>Column types</th></tr>
-    ${app.map(rowH).join('')}${bad.length?`<tr><td colspan="6" class="na"><b>Not feasible (${bad.length})</b> — shown with the reason:</td></tr>`+bad.map(rowH).join(''):''}${na.length?`<tr><td colspan="6" class="na"><b>Not applicable (${na.length})</b> — the system is not needed in this building:</td></tr>`+na.map(rowH).join(''):''}</table></div>`;
+    ${app.filter(e=>e.R.worst==='pass'||view.showMarg).map(rowH).join('')}${app.some(e=>e.R.worst==='marg')?`<tr class="noprint"><td colspan="6"><button id="bMarg">${view.showMarg?'Hide':'Show'} ${app.filter(e=>e.R.worst==='marg').length} slightly-off schemes</button></td></tr>`:''}${(bad.length||na.length)?`<tr><td colspan="6" class="na">${bad.length+na.length} not feasible / not applicable combinations hidden.</td></tr>`:''}${false?`<tr><td colspan="6" class="na"><b>Not applicable (${na.length})</b> — the system is not needed in this building:</td></tr>`+na.map(rowH).join(''):''}</table></div>`;
     const E=L.find(e=>e.sc.id===view.scheme)||order[0]; view.scheme=E.sc.id;
     html+=schemeHTML(E);
     h.innerHTML=html; bindOut(); bindReport(E); return;
@@ -1339,13 +1341,13 @@ function renderOut(){
 }
 function bindOut(){
   const h=$('#out');
+  const bm=$('#bMarg'); if(bm) bm.onclick=ev=>{ ev.stopPropagation(); view.showMarg=!view.showMarg; renderOut(); };
   const ld=$('#layDet'); if(ld) ld.ontoggle=()=>{ view.layOpen=ld.open; };
   h.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ view.tab=b.dataset.tab; renderOut(); });
   h.querySelectorAll('.cat tr[data-id]').forEach(tr=>tr.onclick=()=>{ view.scheme=tr.dataset.id; renderOut(); });
   h.querySelectorAll('[data-go]').forEach(a=>a.onclick=ev=>{ ev.preventDefault(); view.scheme=a.dataset.go; view.tab='schemes'; renderOut(); });
   h.querySelectorAll('[data-cmp]').forEach(b=>b.onclick=()=>{ view.cmpSel=b.dataset.cmp.split('|'); view.tab='compare'; renderOut(); });
   h.querySelectorAll('input[data-cmpsel]').forEach(c=>c.onchange=()=>{ const id=c.dataset.cmpsel; view.cmpSel=(view.cmpSel||[]).filter(x=>x!==id); if(c.checked) view.cmpSel.push(id); renderOut(); });
-  const cp=$('#cmpPlan'); if(cp) cp.onchange=()=>{ view.cmpPlan=+cp.value; renderOut(); };
   h.querySelectorAll('input[data-ly]').forEach(c=>c.onchange=()=>{ const id=c.dataset.ly; if(c.checked) view.hide.delete(id); else view.hide.add(id); applyLayers(); });
   applyLayers();
 }
