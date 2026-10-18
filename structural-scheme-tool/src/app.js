@@ -315,17 +315,36 @@ const major=t=>t.split(' + ').map(x=>x==='STOREY-DEEP'?'GIRDER':x).filter((v,i,a
 function distinctBy(a,b){ const A=sigOf(a), B=sigOf(b), d=[]; if(layDiff(a.lay,b.lay)) d.push('column spacing / layout (framing plan)'); if(A.tm!==B.tm) d.push('transfer vs no transfer (load path)'); if(major(A.tr)!==major(B.tr)) d.push('transfer principle (load path)'); return d; }
 function weakDiff(a,b){ const A=sigOf(a), B=sigOf(b); return !distinctBy(a,b).length&&(A.tr!==B.tr||A.lay!==B.lay); }
 const feasibleE=e=>e.R.applicable&&e.R.worst!=='fail';
+// how different two schemes are, aspect by aspect (the answer pair should differ in as many as possible)
+function tLevels(e){ const s=new Set(); Object.values(e.R.ch).forEach(c=>{ if(c&&c.m&&c.m.carries&&c.tag) s.add(c.m.level); });
+  e.R.checks.forEach(c=>{ if(c.cat==='Transfer plate') s.add(c.where); if(c.cat==='Hanger + truss'){ const m=c.item.match(/TRUSS IN (\S+)/); if(m) s.add(m[1]); } if(c.cat==='Inclined column') s.add(c.where.split(' ')[0]); }); return s; }
+function tTypes(e){ const t=new Set(); [...e.R.used].forEach(u=>{ if(['PLATE','STRUSS','RCWALL','HANG','INCL','PT'].includes(u)) t.add(u); }); Object.values(e.R.ch).forEach(c=>{ if(c&&c.m&&c.m.carries&&(c.sys==='RC'||c.sys==='ST')) t.add('GIRDER'); }); return t; }
+const T_NAME={PLATE:'transfer plate',STRUSS:'storey-deep truss',RCWALL:'storey-deep wall / deep beam',HANG:'hanger + roof truss',INCL:'inclined column',PT:'PT girder',GIRDER:'transfer girder'};
+function maxBay(e){ return Math.max(...e.M.grids.filter(g=>g.cols).flatMap(g=>[...g.gx.sp,...g.gy.sp])); }
+function aspects(a,b){
+  const ta=sigOf(a).tm==='TRANSFER', tb=sigOf(b).tm==='TRANSFER'; const la=tLevels(a), lb=tLevels(b), ya=tTypes(a), yb=tTypes(b);
+  const sameSet=(x,y)=>x.size===y.size&&[...x].every(v=>y.has(v));
+  const out=[
+    {k:'grid',w:3,on:layDiff(a.lay,b.lay),txt:'Column grid'},
+    {k:'tr',w:3,on:ta!==tb,txt:'Transfer vs no transfer'},
+    {k:'lvl',w:2,on:ta&&tb&&!sameSet(la,lb),txt:'Transfer floor'},
+    {k:'type',w:2,on:ta&&tb&&!sameSet(ya,yb),txt:'Transfer type'},
+    {k:'span',w:1,on:Math.abs(maxBay(a)-maxBay(b))>=3,txt:'Max. span'}];
+  out.forEach(x=>{ x.detail=x.k==='grid'?`${a.lay.bays.x} × ${a.lay.bays.y}${a.lay.band?' (two-band)':''} | ${b.lay.bays.x} × ${b.lay.bays.y}${b.lay.band?' (two-band)':''}`:
+    x.k==='tr'?`${ta?'transfer':'no transfer'} | ${tb?'transfer':'no transfer'}`:x.k==='lvl'?`${[...la].join(', ')||'—'} | ${[...lb].join(', ')||'—'}`:
+    x.k==='type'?`${[...ya].map(t=>T_NAME[t]).join(', ')||'—'} | ${[...yb].map(t=>T_NAME[t]).join(', ')||'—'}`:`${f1(maxBay(a))} m | ${f1(maxBay(b))} m`; });
+  return out;
+}
+const aScore=as=>as.reduce((t,x)=>t+(x.on?x.w:0),0);
 function recPair(L){
-  // answer = one RC scheme + one steel scheme that are distinct (column spacing / transfer) — preferred uniform, passing
   const rank=(a,b)=>V_RANK[a.R.worst]-V_RANK[b.R.worst]||(a.lay.arch?0:1)-(b.lay.arch?0:1)||((a.lay.scr&&a.lay.scr.u)||0)-((b.lay.scr&&b.lay.scr.u)||0);
   const fe=L.filter(feasibleE), rc=fe.filter(e=>e.sc.mat==='rc').sort(rank), stl=fe.filter(e=>e.sc.mat==='st').sort(rank);
-  const wt=d=>d.length+(d.some(t=>t.startsWith('column'))?2:0);
-  const partner=(a,list)=>list.map(b=>({b,d:distinctBy(a,b)})).filter(x=>x.d.length).sort((x,y)=>V_RANK[x.b.R.worst]-V_RANK[y.b.R.worst]||wt(y.d)-wt(x.d)||rank(x.b,y.b))[0];
-  let a=rc.find(e=>e.sc.id===view.pickRC)||rc[0], b=stl.find(e=>e.sc.id===view.pickST);
-  if (!b&&a){ const p=partner(a,stl); b=p?p.b:stl[0]; }
-  if (!a&&b){ const p=partner(b,rc); a=p?p.b:rc[0]; }
+  // default: the RC / steel pair that differs the most (passing schemes first, then uniform spacing)
+  const pen=e=>V_RANK[e.R.worst]*4+((e.lay.scr&&e.lay.scr.u)||0);
+  let best=null; rc.forEach(a=>stl.forEach(b=>{ if(!distinctBy(a,b).length) return; const sc=aScore(aspects(a,b))-pen(a)-pen(b); if(!best||sc>best.sc) best={a,b,sc}; }));
+  let a=rc.find(e=>e.sc.id===view.pickRC)||(best&&best.a)||rc[0], b=stl.find(e=>e.sc.id===view.pickST)||(best&&best.b)||stl[0];
   if (!a||!b) return a||b?{a:a||b,b:null,d:[],rc,stl}:null;
-  return {a,b,d:distinctBy(a,b),rc,stl};
+  return {a,b,d:distinctBy(a,b),rc,stl,as:aspects(a,b)};
 }
 function assess(W,sc,C,M){
   const st=W.set, L=M.L, nL=M.nL, checks=[], tol=st.tol, step=st.step/1000;
@@ -764,8 +783,9 @@ function prosCons(e){
 function recHTML(L){
   const r=recPair(L); if(!r) return `<div class="card rec fail"><b>No viable scheme found.</b></div>`;
   if (!r.b) return `<div class="card rec marg"><b>Only ${r.a.sc.mat==='rc'?'RC':'steel'} schemes are viable</b> — no ${r.a.sc.mat==='rc'?'steel':'RC'} scheme passes.</div>`;
-  const ok=r.d.length>0;
-  return `<div class="card rec ${ok?'pass':'fail'}"><b>Answer: RC <a href="#" data-go="${r.a.sc.id}">${esc(r.a.sc.id)}</a> ${V_ICON[r.a.R.worst]} + STEEL <a href="#" data-go="${r.b.sc.id}">${esc(r.b.sc.id)}</a> ${V_ICON[r.b.R.worst]}</b> — ${ok?`✅ distinct by ${r.d.join(', ')}`:'❌ NOT distinct (same layout and transfer — pick another one in the lists below)'}.
+  const ok=r.d.length>0, as=r.as, sc=aScore(as), mx=aScore(as.map(x=>({...x,on:true})));
+  return `<div class="card rec ${ok?'pass':'fail'}"><b>Answer: RC <a href="#" data-go="${r.a.sc.id}">${esc(r.a.sc.id)}</a> ${V_ICON[r.a.R.worst]} + STEEL <a href="#" data-go="${r.b.sc.id}">${esc(r.b.sc.id)}</a> ${V_ICON[r.b.R.worst]}</b> — ${ok?`✅ distinct, difference score ${sc} / ${mx}`:'❌ NOT distinct (same layout and transfer — pick another one in the lists below)'}.
+  <table class="mini" style="margin:6px 0"><tr><th>Aspect</th><th>Different?</th><th>RC ${esc(r.a.sc.id)} | Steel ${esc(r.b.sc.id)}</th></tr>${as.map(x=>`<tr class="${x.on?'v-pass':''}"><td>${x.txt}</td><td>${x.on?'✅':'—'}</td><td>${esc(x.detail)}</td></tr>`).join('')}</table>
   <button data-cmp="${r.a.sc.id}|${r.b.sc.id}" class="noprint">Compare side by side</button><div class="note">Choose one RC and one steel scheme in the two lists below. HKIE: load path and framing plan must differ; RC vs steel with the same layout is NOT distinct.</div></div>`;
 }
 function appraisalHTML(L){
@@ -827,7 +847,7 @@ function renderOut(){
     const rp=recPair(L)||{}; const shown=e=>e.R.worst==='pass'||view.showMarg;
     const pickRow=(e,role)=>{ const cols=e.R.checks.filter(c=>c.cat==='Column').map(c=>esc(c.item.replace('COLUMN ','').replace(' (ENCASED)',''))).join(', '); const on=(role==='rc'?rp.a:rp.b)===e;
       const dd=role==='st'&&rp.a?distinctBy(rp.a,e):role==='rc'&&rp.b?distinctBy(e,rp.b):[];
-      return `<tr data-pick="${role}" data-id="${e.sc.id}" class="${on?'sel':''} ${view.scheme===e.sc.id?'cur':''}"><td><input type="radio" name="pk_${role}" ${on?'checked':''}></td><td><b>${e.sc.id}</b> ${V_ICON[e.R.worst]}<div class="note">${esc(e.sc.name.toLowerCase())}</div><div class="note">${esc(e.lay.short.toLowerCase())}</div><div class="note">${cols}</div></td><td style="white-space:nowrap">${dd.length?'✅ distinct':'<span class="ng">same as other</span>'}</td></tr>`; };
+      return `<tr data-pick="${role}" data-id="${e.sc.id}" class="${on?'sel':''} ${view.scheme===e.sc.id?'cur':''}"><td><input type="radio" name="pk_${role}" ${on?'checked':''}></td><td><b>${e.sc.id}</b> ${V_ICON[e.R.worst]}<div class="note">${esc(e.sc.name.toLowerCase())}</div><div class="note">${esc(e.lay.short.toLowerCase())}</div><div class="note">${cols}</div></td><td style="white-space:nowrap">${dd.length?`✅ ${aScore(role==='st'?aspects(rp.a,e):aspects(e,rp.b))} pts`:'<span class="ng">same as other</span>'}</td></tr>`; };
     const col=(list,role,ttl)=>`<div><h3>${ttl} (${list.filter(shown).length})</h3><table class="mini cat pick">${list.filter(shown).map(e=>pickRow(e,role)).join('')}</table></div>`;
     const nm=app.filter(e=>e.R.worst==='marg').length;
     html+=`<div class="card"><h2>Choose your two schemes</h2><div class="hint">Left: RC schemes. Right: steel schemes. Click a row to choose it (and to show its plans below). Not feasible ones are hidden (${bad.length+na.length}).</div>
