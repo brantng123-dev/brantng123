@@ -10,14 +10,14 @@ const DEF_SET = {
   tol:15, step:250, minSize:500,
   slabRC:150, slabComp:125, sdSlab:26, sdSec:23, sdMain:26, sdCant:7, cantRC:5, cantSt:7,
   kRC:20, kSt:17.8, ef:1.25, tf:1.5, nRC:27.7, nComp:39.95, fcuB:45, py:355, sdPT:20, plateRatio:6, wallRatio:6, inclMax:0.25,
-  slenderBraced:15, colGroups:3, zoneOffset:1, layouts:1, maxLayouts:30, maxBay:20, sdFlat:26, vcFlat:0.6
+  slenderBraced:15, colGroups:3, zoneOffset:1, layouts:1, spRound:0.25, maxLayouts:30, maxBay:20, sdFlat:26, vcFlat:0.6
 };
 const SET_LABELS = {
   tol:'"Slightly off" tolerance (%)', step:'Size step (mm)', minSize:'Min. column size (mm)',
   slabRC:'RC slab thickness (mm)', slabComp:'Composite slab thickness (mm)', sdSlab:'Slab S/D limit', sdSec:'Secondary beam S/D (×10/L if L>10)', sdMain:'Main / transfer beam S/D (×10/L if L>10)', sdCant:'Cantilever S/D limit',
   cantRC:'RC cantilever max. span (m)', cantSt:'Steel cantilever max. span (m)',
   kRC:'RC load per floor (kPa)', kSt:'Steel WULS per floor (kPa)', ef:'Elastic factor (columns)', tf:'Transfer factor', nRC:'RC column N/Ac (fcu60, 2%)', nComp:'Composite column N/Ac', fcuB:'Beam fcu (MPa)', py:'Steel py (MPa)',
-  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', layouts:'Generate column layouts (1 = yes, 0 = only the architectural grid)', maxLayouts:'Max. column layouts fully checked', maxBay:'Max. column spacing tried (m)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column'
+  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', layouts:'Generate column layouts (1 = yes, 0 = only the architectural grid)', spRound:'Round column spacing to (m, 0 = exact division)', maxLayouts:'Max. column layouts fully checked', maxBay:'Max. column spacing tried (m)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column'
 };
 const KINDS = [
   ['core','Core wall (rigid support)'],
@@ -216,12 +216,18 @@ function* layoutGen(W){
     const lo=r(Math.min(...fps.map(z=>ax==='x'?z.x1:z.y1))), hi=r(Math.max(...fps.map(z=>ax==='x'?z.x2:z.y2)));
     const inR=v=>v>lo-TOL&&v<hi+TOL; const sets=[]; const push=(pos,kind)=>{ pos=pos.map(r); if(pos.length<2) return; const b=bays(pos); if(b.some(v=>v>maxBay+1e-6)) return; if(!sets.some(o=>o.pos.length===pos.length&&o.pos.every((v,i)=>Math.abs(v-pos[i])<TOL))) sets.push({pos,kind}); };
     const ap=archP[ax].filter(inR); if (ap.length>1) push(ap,'arch');
-    for (const c of [0,2.5,5]){ const L=hi-lo-2*c; if(L<=0) continue; for(let n=1;n<=40;n++){ const b=L/n; if(b<minSp-1e-6) break; if(b>maxBay+1e-6) continue; push(Array.from({length:n+1},(_,i)=>lo+c+i*b),c?`cantilever ${c} m`:'equal bays'); } }
+    // n bays over length L, each a multiple of spRound: equal inner bays, the two end bays take the remainder
+    const q=num(st.spRound)||0, isQ=v=>!q||Math.abs(v/q-Math.round(v/q))<1e-6;
+    const div=(L,n)=>{ const ex=L/n; if(!q||isQ(ex)||n===1) return Array(n).fill(ex); if(n===2){ const a=Math.round(ex/q)*q; return [a,L-a]; }
+      let best=null; for(let b=Math.ceil(ex/q)*q+q;b>=ex-1.5;b-=q){ const e=(L-(n-2)*b)/2; if(!isQ(e)&&isQ(L)) continue; const d=Math.abs(e-b); if(d<=1.5&&(!best||d<best.d)) best={b,e,d}; }
+      return best?[best.e,...Array(n-2).fill(best.b),best.e]:Array(n).fill(ex); };
+    const seq=(a,bs)=>{ const o=[a]; bs.forEach(v=>o.push(o.at(-1)+v)); return o; };
+    for (const c of [0,2.5,5]){ const L=hi-lo-2*c; if(L<=0) continue; for(let n=1;n<=40;n++){ const ex=L/n; if(ex<minSp-1e-6) break; if(ex>maxBay+1e-6) continue; const bs=div(L,n); if(Math.min(...bs)<minSp-1e-6) continue; push(seq(lo+c,bs),c?`cantilever ${c} m`:'equal bays'); } }
     // aligned to footprint / core / restricted-zone edges
     const mand=new Set([lo,hi]), pref=new Set();
     M.zones.filter(z=>ss.some(s=>zAt(z,s))).forEach(z=>{ const a=ax==='x'?[z.x1,z.x2]:[z.y1,z.y2]; a.map(r).filter(inR).forEach(v=>(z.type==='footprint'||z.type==='core'?mand:pref).add(v)); });
     let bl=[...mand].sort((a,b)=>a-b); [...pref].sort((a,b)=>a-b).forEach(v=>{ if(bl.every(b=>Math.abs(b-v)>=minSp-1e-6)) bl.push(v); }); bl.sort((a,b)=>a-b);
-    [6,7.5,8,8.4,9,10,11,12,13.5,15,16.5,18,20].forEach(t=>{ const out=[bl[0]]; for(let i=0;i<bl.length-1;i++){ const L=bl[i+1]-bl[i]; let n=Math.max(1,Math.round(L/t)); while(n>1&&L/n<minSp-1e-6) n--; for(let j=1;j<=n;j++) out.push(bl[i]+L*j/n); } push(out,'aligned to core / zone edges'); });
+    [6,7.5,8,8.4,9,10,11,12,13.5,15,16.5,18,20].forEach(t=>{ const out=[bl[0]]; for(let i=0;i<bl.length-1;i++){ const L=bl[i+1]-bl[i]; let n=Math.max(1,Math.round(L/t)); while(n>1&&Math.min(...div(L,n))<minSp-1e-6) n--; seq(bl[i],div(L,n)).slice(1).forEach(v=>out.push(v)); } push(out,'aligned to core / zone edges'); });
     // keep a varied short list: one per (number of bays, longest bay), preferring the simplest kind
     const pri={arch:0,'equal bays':0,'aligned to core / zone edges':1}; const seen=new Set(), keep=[];
     const add=(o,cap)=>{ const k=(o.pos.length)+'|'+Math.round(Math.max(...bays(o.pos))); if(!seen.has(k)&&keep.length<cap){ seen.add(k); keep.push(o); } };
