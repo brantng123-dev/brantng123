@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>結構方案助手</title>
+<title>Structural Scheme Assistant</title>
 <style>
 :root{
   --bg:#f6f7f9;--card:#fff;--ink:#1d2330;--mute:#6b7383;--line:#d9dde4;--acc:#1f5fbf;
@@ -15,7 +15,7 @@
   --slab:#232a35;--void:#1f4466;--colfree:#5c3d14;--core:#4a4f59;--keep:#294a23;--dbl:#3b2f5c;
   --bad:#ff6b6b;--warn:#ffb14a;--ok:#6fcf73;--m1:#6ea8ff;--m2:#d58bff;--wall:#c9cfda;--wallup:#6ea8ff;}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"PingFang TC","Heiti TC","Microsoft JhengHei",sans-serif}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"Helvetica Neue",Arial,sans-serif}
 header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
 header h1{font-size:17px;margin:0 12px 0 0}
 button,select,input{font:inherit;color:inherit}
@@ -57,24 +57,24 @@ details summary{cursor:pointer;color:var(--acc)}
 </head>
 <body>
 <header>
-  <h1>結構方案助手（離線）</h1>
+  <h1>Structural Scheme Assistant (offline)</h1>
   <select id="selPreset">
-    <option value="">— 載入範例 —</option>
-    <option value="q2">2012 Q2 商場（中庭／無柱區）</option>
-    <option value="q1">2012 Q1 酒店塔樓＋平台（轉換，讀圖近似）</option>
-    <option value="spans">2012 Q3／Q4／Q6 跨度題（讀圖近似）</option>
-    <option value="blank">新項目（空白）</option>
+    <option value="">— Load example —</option>
+    <option value="q2">2012 Q2 Shopping mall (atrium / column-free zone)</option>
+    <option value="q1">2012 Q1 Hotel tower over podium (transfer, approx.)</option>
+    <option value="spans">2012 Q3 / Q4 / Q6 span questions (approx.)</option>
+    <option value="blank">New project (blank)</option>
   </select>
-  <button id="bSave">儲存項目檔</button>
-  <button id="bOpen">開啟項目檔</button>
+  <button id="bSave">Save project file</button>
+  <button id="bOpen">Open project file</button>
   <input type="file" id="fOpen" accept=".json,application/json" hidden>
   <span class="hint" id="status"></span>
 </header>
 <nav>
-  <button data-tab="input" class="on">① 樓宇：輸入</button>
-  <button data-tab="analysis">② 樓宇：分析</button>
-  <button data-tab="schemes">③ 樓宇：兩個方案</button>
-  <button data-tab="spans">④ 橋／天橋／屋面（跨度題）</button>
+  <button data-tab="input" class="on">① Building: Input</button>
+  <button data-tab="analysis">② Building: Analysis</button>
+  <button data-tab="schemes">③ Building: Two Schemes</button>
+  <button data-tab="spans">④ Bridges / Footbridges / Roofs (span questions)</button>
 </nav>
 <main>
   <section id="tab-input"></section>
@@ -86,7 +86,7 @@ details summary{cursor:pointer;color:var(--acc)}
 <script>
 'use strict';
 /* =====================================================================
-   參數及資料
+   Parameters and data
    ===================================================================== */
 const DEFAULT_PARAMS = {
   rc:12, rcT:10, rcCant:6,
@@ -100,27 +100,27 @@ const DEFAULT_PARAMS = {
   dlRC:10, dlST:6, fosUp:1.1, goodN:50, rockNear:10
 };
 const PARAM_LABELS = {
-  rc:'RC 梁 跨深比', rcT:'RC 轉換梁（承柱）跨深比', rcCant:'RC 懸臂 跨深比',
-  pt:'後張梁 跨深比', ptT:'後張轉換梁 跨深比', ptCant:'後張懸臂 跨深比',
-  st:'鋼板梁 跨深比', stT:'鋼轉換梁 跨深比', stCant:'鋼懸臂 跨深比',
-  truss:'鋼桁架（樓板內）跨深比', trussCant:'鋼桁架懸臂 跨深比',
-  storeyTruss:'層高桁架 跨深比（上限）', rcWall:'層高轉換牆 跨深比（上限）',
-  plate:'轉換板 跨厚比', plateMin:'轉換點數目 ≥ 此值先考慮轉換板',
-  inclMax:'斜柱 最大 水平偏移÷層高', cantMax:'轉換懸臂 最大長度 m',
-  beamCont:'一般連續梁 跨深比',
-  dlRC:'RC 每層恆載估算 kPa', dlST:'鋼／組合 每層恆載估算 kPa', fosUp:'抗浮安全系數',
-  goodN:'良好持力層 SPT N ≥', rockNear:'岩面「接近」界線 m'
+  rc:'RC beam span/depth', rcT:'RC transfer beam (carrying columns) span/depth', rcCant:'RC cantilever span/depth',
+  pt:'PT beam span/depth', ptT:'PT transfer beam span/depth', ptCant:'PT cantilever span/depth',
+  st:'Steel plate girder span/depth', stT:'Steel transfer girder span/depth', stCant:'Steel cantilever span/depth',
+  truss:'Steel truss (within floor zone) span/depth', trussCant:'Steel truss cantilever span/depth',
+  storeyTruss:'Storey-deep truss span/depth (limit)', rcWall:'Storey-deep transfer wall span/depth (limit)',
+  plate:'Transfer plate span/thickness', plateMin:'Consider transfer plate when transfer points ≥',
+  inclMax:'Inclined column max. offset ÷ storey height', cantMax:'Max. transfer cantilever (m)',
+  beamCont:'Typical continuous beam span/depth',
+  dlRC:'RC dead load per floor (kPa)', dlST:'Steel / composite dead load per floor (kPa)', fosUp:'FOS against uplift',
+  goodN:'Good bearing stratum: SPT N ≥', rockNear:'Rock "close" if within (m)'
 };
 const ZONE_TYPES = [
-  ['void','中庭／挑空（區內無柱，中間樓板取消）'],
-  ['dbl','挑高大堂（中間樓板取消，柱照留）'],
-  ['colfree','無柱區'],
-  ['core','核心筒'],
-  ['footprint','建築範圍（只喺範圍內有樓）'],
-  ['outside','無建築範圍（例如平台以上）'],
-  ['keep','柱位必須保留（上層柱要轉換）']
+  ['void','Atrium / void (no columns, intermediate slabs omitted)'],
+  ['dbl','Double-height lobby (intermediate slabs omitted, columns kept)'],
+  ['colfree','Column-free zone'],
+  ['core','Core'],
+  ['footprint','Building footprint (building only inside)'],
+  ['outside','No building (e.g. above podium)'],
+  ['keep','Columns must be kept (transfer the columns above)']
 ];
-const ZONE_ZH = Object.fromEntries(ZONE_TYPES);
+const ZONE_NAME = Object.fromEntries(ZONE_TYPES);
 const EPS=1e-6, TOL=0.05, DQ=0.01;
 
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -129,83 +129,83 @@ const num = v => { if (v === null || v === undefined) return null; const n = par
 const f = (x, d=2) => (x === null || x === undefined || !Number.isFinite(x)) ? '–' : x.toFixed(d);
 const rng=(n,fn)=>Array.from({length:n},(_,i)=>fn(i));
 
-/* ---------- 範例 ---------- */
+/* ---------- Examples ---------- */
 const BASE_SITE = {refLevel:'G/F',refMpd:5,gwl:2,rock:-20,raftT:1.0,adjacent:false,soils:[]};
 const PRESET_Q2 = {
   title:'HKIE 2012 Q2 Shopping Mall',
-  grids:[{name:'主',xLabels:'1,2,3,4,5,6,7,8',xSp:'10,10,10,10,10,10,10',yLabels:'A,B,C,D,E',ySp:'10,10,10,10',ox:0,oy:0,s1:'',s2:'',cols:true}],
+  grids:[{name:'M',xLabels:'1,2,3,4,5,6,7,8',xSp:'10,10,10,10,10,10,10',yLabels:'A,B,C,D,E',ySp:'10,10,10,10',ox:0,oy:0,s1:'',s2:'',cols:true}],
   levels:[
-    {name:'B3/F',h:4,head:2.7,svc:0.3,free:true,use:'停車場'},
-    {name:'B2/F',h:4,head:2.7,svc:0.3,free:true,use:'停車場'},
-    {name:'B1/F',h:6.5,head:5.0,svc:0.3,free:true,use:'停車場'},
-    {name:'G/F',h:6,head:4.5,svc:0.3,free:false,use:'商舖'},
-    {name:'1/F',h:5,head:3.8,svc:0.3,free:false,use:'商舖'},
-    {name:'2/F',h:5,head:3.8,svc:0.3,free:false,use:'商舖'},
-    {name:'3/F',h:5,head:3.8,svc:0.3,free:false,use:'商舖'},
-    {name:'4/F',h:5,head:3.8,svc:0.3,free:false,use:'商舖'},
-    {name:'5/F',h:7.5,head:6.0,svc:0.3,free:false,use:'戲院'},
-    {name:'6/F',h:5,head:3.5,svc:0.3,free:true,use:'機房'},
-    {name:'R/F',h:'',head:'',svc:'',free:false,use:'天面'}
+    {name:'B3/F',h:4,head:2.7,svc:0.3,free:true,use:'Car park'},
+    {name:'B2/F',h:4,head:2.7,svc:0.3,free:true,use:'Car park'},
+    {name:'B1/F',h:6.5,head:5.0,svc:0.3,free:true,use:'Car park'},
+    {name:'G/F',h:6,head:4.5,svc:0.3,free:false,use:'Shops'},
+    {name:'1/F',h:5,head:3.8,svc:0.3,free:false,use:'Shops'},
+    {name:'2/F',h:5,head:3.8,svc:0.3,free:false,use:'Shops'},
+    {name:'3/F',h:5,head:3.8,svc:0.3,free:false,use:'Shops'},
+    {name:'4/F',h:5,head:3.8,svc:0.3,free:false,use:'Shops'},
+    {name:'5/F',h:7.5,head:6.0,svc:0.3,free:false,use:'Cinema'},
+    {name:'6/F',h:5,head:3.5,svc:0.3,free:true,use:'Plant room'},
+    {name:'R/F',h:'',head:'',svc:'',free:false,use:'Roof'}
   ],
   zones:[
-    {type:'core',name:'核心筒',x1:'1',x2:'2',y1:'B',y2:'D',s1:'B3/F',s2:'6/F',head:'',svc:''},
-    {type:'void',name:'中庭',x1:'3',x2:'5',y1:'B',y2:'D',s1:'1/F',s2:'4/F',head:17,svc:''},
-    {type:'colfree',name:'戲院無柱區',x1:'3+5',x2:'5',y1:'B+5',y2:'D',s1:'5/F',s2:'5/F',head:'',svc:''},
-    {type:'outside',name:'B區平台以上',x1:'6',x2:'8',y1:'A',y2:'E',s1:'1/F',s2:'6/F',head:'',svc:''}
+    {type:'core',name:'Core',x1:'1',x2:'2',y1:'B',y2:'D',s1:'B3/F',s2:'6/F',head:'',svc:''},
+    {type:'void',name:'Atrium',x1:'3',x2:'5',y1:'B',y2:'D',s1:'1/F',s2:'4/F',head:17,svc:''},
+    {type:'colfree',name:'Cinema column-free zone',x1:'3+5',x2:'5',y1:'B+5',y2:'D',s1:'5/F',s2:'5/F',head:'',svc:''},
+    {type:'outside',name:'Zone B above podium',x1:'6',x2:'8',y1:'A',y2:'E',s1:'1/F',s2:'6/F',head:'',svc:''}
   ],
-  walls:[], columns:[], specials:[],
+  walls:[], columns:[], removed:[], specials:[],
   site:{refLevel:'G/F',refMpd:6.0,gwl:5.0,rock:-14,raftT:1.5,adjacent:true,
     soils:[
-      {top:6,bot:4,desc:'鬆填土',N:'<4'},{top:4,bot:2,desc:'鬆至中密砂',N:'4-30'},{top:2,bot:-6,desc:'密砂',N:'30-50'},
-      {top:-6,bot:-8,desc:'極密砂',N:'50-100'},{top:-8,bot:-14,desc:'極密砂',N:'>100'}]},
+      {top:6,bot:4,desc:'Loose fill',N:'<4'},{top:4,bot:2,desc:'Loose to medium dense sand',N:'4-30'},{top:2,bot:-6,desc:'Dense sand',N:'30-50'},
+      {top:-6,bot:-8,desc:'Very dense sand',N:'50-100'},{top:-8,bot:-14,desc:'Very dense sand',N:'>100'}]},
   rules:{minSpacing:8, wallsBanned:true, autoStop:true},
   params:{...DEFAULT_PARAMS}, pick:{s1:'A',s2:'C'}, runs:[]
 };
 function presetQ1(){
-  const lv=[{name:'B/F',h:4.1,head:2.4,svc:0.8,free:true,use:'停車場'},{name:'G/F',h:5,head:3.6,svc:0.6,free:false,use:'商舖'}];
-  for(let i=1;i<=4;i++) lv.push({name:`${i}/F`,h:5,head:3.6,svc:0.6,free:false,use:i===3?'商舖／酒店大堂':'商舖'});
-  lv.push({name:'5/F',h:4,head:2.5,svc:0.5,free:true,use:'機房（塔樓）'});
-  for(let i=6;i<=32;i++) lv.push({name:`${i}/F`,h:4,head:i===23?2.5:2.8,svc:0.5,free:i===23,use:i===23?'避難層':'酒店客房'});
-  lv.push({name:'R/F',h:'',head:'',svc:'',free:false,use:'天面'});
+  const lv=[{name:'B/F',h:4.1,head:2.4,svc:0.8,free:true,use:'Car park'},{name:'G/F',h:5,head:3.6,svc:0.6,free:false,use:'Retail'}];
+  for(let i=1;i<=4;i++) lv.push({name:`${i}/F`,h:5,head:3.6,svc:0.6,free:false,use:i===3?'Retail / hotel lobby':'Retail'});
+  lv.push({name:'5/F',h:4,head:2.5,svc:0.5,free:true,use:'Plant floor (tower)'});
+  for(let i=6;i<=32;i++) lv.push({name:`${i}/F`,h:4,head:i===23?2.5:2.8,svc:0.5,free:i===23,use:i===23?'Refuge floor':'Hotel rooms'});
+  lv.push({name:'R/F',h:'',head:'',svc:'',free:false,use:'Roof'});
   const wall=(name,x1,y1,y2,n)=>({name,x1,y1,x2:x1,y2,s1:'6/F',s2:'32/F',n,dx:5,dy:0});
   return {
-    title:'HKIE 2012 Q1 Hotel over podium（讀圖近似，測試用）',
+    title:'HKIE 2012 Q1 Hotel over podium (approximate, for testing)',
     grids:[
-      {name:'主',xLabels:rng(12,i=>i+1).join(','),xSp:rng(11,()=>10).join(','),yLabels:'A,B,C,D,E,F,G,H,J,K',ySp:'10,10,10,10,10,10,10,10,12',ox:8,oy:8,s1:'B/F',s2:'5/F',cols:true},
+      {name:'M',xLabels:rng(12,i=>i+1).join(','),xSp:rng(11,()=>10).join(','),yLabels:'A,B,C,D,E,F,G,H,J,K',ySp:'10,10,10,10,10,10,10,10,12',ox:8,oy:8,s1:'B/F',s2:'5/F',cols:true},
       {name:'T',xLabels:rng(23,i=>'T'+(i+1)).join(','),xSp:rng(22,()=>5).join(','),yLabels:'a,b,c,d',ySp:'10,2,10',ox:8,oy:78,s1:'6/F',s2:'32/F',cols:false}
     ],
     levels:lv,
     zones:[
-      {type:'core',name:'升降機核心筒',x1:'T:T11',x2:'T:T13',y1:'H',y2:'K',s1:'B/F',s2:'32/F',head:'',svc:''},
-      {type:'footprint',name:'5/F 只有塔樓',x1:'1',x2:'12',y1:'H',y2:'K',s1:'5/F',s2:'5/F',head:'',svc:''},
-      {type:'dbl',name:'酒店大堂（3/F 雙層高）',x1:'1',x2:'12',y1:'H',y2:'K',s1:'3/F',s2:'4/F',head:5.5,svc:1.3},
-      {type:'void',name:'溜冰場（天窗屋面不考慮）',x1:'@40',x2:'@86',y1:'@0',y2:'@28',s1:'2/F',s2:'5/F',head:'',svc:''}
+      {type:'core',name:'Lift core',x1:'T:T11',x2:'T:T13',y1:'H',y2:'K',s1:'B/F',s2:'32/F',head:'',svc:''},
+      {type:'footprint',name:'5/F tower only',x1:'1',x2:'12',y1:'H',y2:'K',s1:'5/F',s2:'5/F',head:'',svc:''},
+      {type:'dbl',name:'Hotel lobby (3/F double height)',x1:'1',x2:'12',y1:'H',y2:'K',s1:'3/F',s2:'4/F',head:5.5,svc:1.3},
+      {type:'void',name:'Ice rink (skylight roof omitted)',x1:'@40',x2:'@86',y1:'@0',y2:'@28',s1:'2/F',s2:'5/F',head:'',svc:''}
     ],
-    walls:[wall('客房牆 左上','T:T1','T:a','T:b',11),wall('客房牆 左下','T:T1','T:c','T:d',11),wall('客房牆 右上','T:T13','T:a','T:b',11),wall('客房牆 右下','T:T13','T:c','T:d',11)],
-    columns:[], specials:[],
+    walls:[wall('Room walls upper-left','T:T1','T:a','T:b',11),wall('Room walls lower-left','T:T1','T:c','T:d',11),wall('Room walls upper-right','T:T13','T:a','T:b',11),wall('Room walls lower-right','T:T13','T:c','T:d',11)],
+    columns:[], removed:[], specials:[],
     site:{refLevel:'G/F',refMpd:4.5,gwl:2.5,rock:-45.5,raftT:1.5,adjacent:false,
-      soils:[{top:4.5,bot:-0.5,desc:'填土',N:'10'},{top:-0.5,bot:-15.5,desc:'沖積層',N:'15'},{top:-15.5,bot:-35.5,desc:'CDG',N:'30-200'}]},
+      soils:[{top:4.5,bot:-0.5,desc:'Fill',N:'10'},{top:-0.5,bot:-15.5,desc:'Alluvium',N:'15'},{top:-15.5,bot:-35.5,desc:'CDG',N:'30-200'}]},
     rules:{minSpacing:10, wallsBanned:false, autoStop:true},
     params:{...DEFAULT_PARAMS}, pick:{s1:'',s2:''}, runs:[]
   };
 }
-const RUN_Q6 = {name:'Q6 行車橋（縱向）',kind:'bridge',L:41,startSup:true,endSup:true,minSpacing:'',maxSupports:'',defaultDepth:'',possession:true,light:false,rockDepth:12,soft:true,
-  zones:[{from:4,to:17,name:'鐵路界線（含1m淨距）',noSupport:true,noTemp:true,depth:2.0},{from:20,to:31,name:'明渠',noSupport:true,noTemp:true,depth:''},{from:32.5,to:38.5,name:'單車徑界線',noSupport:true,noTemp:true,depth:''}]};
-const RUN_Q4 = {name:'Q4 行人天橋（由B校外牆起）',kind:'footbridge',L:24,startSup:false,endSup:false,minSpacing:'',maxSupports:2,defaultDepth:'',possession:false,light:true,rockDepth:4.5,soft:false,
-  zones:[{from:0,to:15.5,name:'B校／草地／緊急車輛通道／工場外牆柱',noSupport:true,noTemp:false,depth:''},{from:19.5,to:21.5,name:'工場現有柱（±1m）',noSupport:true,noTemp:false,depth:''}]};
-const RUN_Q3X = {name:'Q3 看台屋面（橫向，前0後20）',kind:'roof',L:20,startSup:false,endSup:true,minSpacing:'',maxSupports:'',defaultDepth:'',possession:false,light:false,rockDepth:20,soft:true,
-  zones:[{from:0,to:15,name:'觀眾區（不准有柱）',noSupport:true,noTemp:false,depth:''}]};
-const RUN_Q3L = {name:'Q3 看台屋面（縱向 100m）',kind:'roof',L:100,startSup:true,endSup:true,minSpacing:25,maxSupports:'',defaultDepth:'',possession:false,light:false,rockDepth:20,soft:true,zones:[]};
+const RUN_Q6 = {name:'Q6 Road bridge (longitudinal)',kind:'bridge',L:41,startSup:true,endSup:true,minSpacing:'',maxSupports:'',defaultDepth:'',possession:true,light:false,rockDepth:12,soft:true,
+  zones:[{from:4,to:17,name:'Railway envelope (incl. 1 m clearance)',noSupport:true,noTemp:true,depth:2.0},{from:20,to:31,name:'Nullah',noSupport:true,noTemp:true,depth:''},{from:32.5,to:38.5,name:'Cycle track envelope',noSupport:true,noTemp:true,depth:''}]};
+const RUN_Q4 = {name:'Q4 Footbridge (from School B facade)',kind:'footbridge',L:24,startSup:false,endSup:false,minSpacing:'',maxSupports:2,defaultDepth:'',possession:false,light:true,rockDepth:4.5,soft:false,
+  zones:[{from:0,to:15.5,name:'School B / lawn / EVA / workshop wall columns',noSupport:true,noTemp:false,depth:''},{from:19.5,to:21.5,name:'Existing workshop column (±1 m)',noSupport:true,noTemp:false,depth:''}]};
+const RUN_Q3X = {name:'Q3 Stand roof (transverse, front 0 / back 20)',kind:'roof',L:20,startSup:false,endSup:true,minSpacing:'',maxSupports:'',defaultDepth:'',possession:false,light:false,rockDepth:20,soft:true,
+  zones:[{from:0,to:15,name:'Spectator area (no columns)',noSupport:true,noTemp:false,depth:''}]};
+const RUN_Q3L = {name:'Q3 Stand roof (longitudinal 100 m)',kind:'roof',L:100,startSup:true,endSup:true,minSpacing:25,maxSupports:'',defaultDepth:'',possession:false,light:false,rockDepth:20,soft:true,zones:[]};
 const BLANK = {
-  title:'新項目',
-  grids:[{name:'主',xLabels:'1,2,3',xSp:'8,8',yLabels:'A,B,C',ySp:'8,8',ox:0,oy:0,s1:'',s2:'',cols:true}],
+  title:'New project',
+  grids:[{name:'M',xLabels:'1,2,3',xSp:'8,8',yLabels:'A,B,C',ySp:'8,8',ox:0,oy:0,s1:'',s2:'',cols:true}],
   levels:[{name:'G/F',h:4.5,head:3.5,svc:0.3,free:false,use:''},{name:'1/F',h:4,head:3,svc:0.3,free:false,use:''},{name:'R/F',h:'',head:'',svc:'',free:false,use:''}],
   zones:[], walls:[], columns:[], removed:[], specials:[], site:clone(BASE_SITE),
   rules:{minSpacing:0, wallsBanned:false, autoStop:true}, params:{...DEFAULT_PARAMS}, pick:{s1:'',s2:''}, runs:[]
 };
 function normalize(d){
   const s={...clone(BLANK),...clone(d)};
-  if (d.grid&&!d.grids) s.grids=[{name:'主',...d.grid,ox:0,oy:0,s1:'',s2:'',cols:true}];
+  if (d.grid&&!d.grids) s.grids=[{name:'M',...d.grid,ox:0,oy:0,s1:'',s2:'',cols:true}];
   delete s.grid;
   s.params={...DEFAULT_PARAMS,...(d.params||{})};
   ['zones','walls','columns','removed','specials','runs','grids'].forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
@@ -215,18 +215,18 @@ function normalize(d){
   return s;
 }
 let S;
-try { S = JSON.parse(localStorage.getItem('schemeTool.v2')) || JSON.parse(localStorage.getItem('schemeTool.v1')); } catch(e) { S=null; }
-S = S&&(S.grids||S.grid) ? normalize(S) : normalize(PRESET_Q2);
-function persist(){ try { localStorage.setItem('schemeTool.v2', JSON.stringify(S)); } catch(e) {} }
+try { S = JSON.parse(localStorage.getItem('schemeTool.en1')); } catch(e) { S=null; }
+S = S&&S.grids ? normalize(S) : normalize(PRESET_Q2);
+function persist(){ try { localStorage.setItem('schemeTool.en1', JSON.stringify(S)); } catch(e) {} }
 
 /* =====================================================================
-   樓宇模型
+   Building model
    ===================================================================== */
 function parseAxis(labStr, spStr, name, err){
   const labels = String(labStr||'').split(/[,，\s]+/).map(s=>s.trim()).filter(Boolean);
   const sp = String(spStr||'').split(/[,，\s]+/).map(s=>s.trim()).filter(Boolean).map(num);
-  if (labels.length < 2) err.push(`${name}：軸線最少要兩條`);
-  if (sp.length !== labels.length-1 || sp.some(v=>v===null||v<=0)) err.push(`${name}：軸距數目要等於軸線數目減一，且全部為正數`);
+  if (labels.length < 2) err.push(`${name}: at least two grid lines are required`);
+  if (sp.length !== labels.length-1 || sp.some(v=>v===null||v<=0)) err.push(`${name}: number of spacings must equal number of grid lines minus one, all positive`);
   const pos=[0]; for (let i=0;i<labels.length-1;i++) pos.push(pos[i]+(sp[i]||0));
   return {labels,pos,sp};
 }
@@ -235,23 +235,23 @@ function buildModel(S){
   const err=[]; const P=S.params;
   const L=(S.levels||[]).map(l=>({name:String(l.name??'').trim(),h:num(l.h),head:num(l.head),svc:num(l.svc)??0,free:!!l.free,use:l.use||''}));
   const nL=L.length;
-  if (nL<2) err.push('樓層表最少要兩層（包括天面）');
+  if (nL<2) err.push('The floor table needs at least two levels (including the roof)');
   for (let s=0;s<nL-1;s++){
-    if (!L[s].name) err.push(`樓層表第 ${s+1} 行冇名稱`);
-    if (L[s].h===null||L[s].head===null) err.push(`${L[s].name||'第'+(s+1)+'行'}：層高同淨空必須填寫`);
+    if (!L[s].name) err.push(`Floor table row ${s+1} has no name`);
+    if (L[s].h===null||L[s].head===null) err.push(`${L[s].name||'Row '+(s+1)}: floor-to-floor height and headroom are required`);
   }
   const sIdx=n=>{const i=L.findIndex(l=>l.name===String(n??'').trim());return (i>=0&&i<nL-1)?i:-1;};
-  const range=(a,b,what)=>{ let s1=String(a??'').trim()?sIdx(a):0, s2=String(b??'').trim()?sIdx(b):nL-2; if(s1<0||s2<0){err.push(`${what}：樓層要揀樓層表內嘅名稱（唔可以用最頂一層）`);return null;} return [Math.min(s1,s2),Math.max(s1,s2)]; };
+  const range=(a,b,what)=>{ let s1=String(a??'').trim()?sIdx(a):0, s2=String(b??'').trim()?sIdx(b):nL-2; if(s1<0||s2<0){err.push(`${what}: floors must be chosen from the floor table (not the top level)`);return null;} return [Math.min(s1,s2),Math.max(s1,s2)]; };
 
   const grids=[];
   (S.grids||[]).forEach((g,gi)=>{
     const nm=String(g.name||'').trim()||('G'+(gi+1));
-    const ax=parseAxis(g.xLabels,g.xSp,`軸網「${nm}」X`,err), ay=parseAxis(g.yLabels,g.ySp,`軸網「${nm}」Y`,err);
+    const ax=parseAxis(g.xLabels,g.xSp,`Grid "${nm}" X`,err), ay=parseAxis(g.yLabels,g.ySp,`Grid "${nm}" Y`,err);
     const ox=num(g.ox)||0, oy=num(g.oy)||0;
-    const r=range(g.s1,g.s2,`軸網「${nm}」`)||[0,nL-2];
+    const r=range(g.s1,g.s2,`Grid "${nm}"`)||[0,nL-2];
     grids.push({name:nm,gx:{labels:ax.labels,pos:ax.pos.map(p=>p+ox),sp:ax.sp},gy:{labels:ay.labels,pos:ay.pos.map(p=>p+oy),sp:ay.sp},s1:r[0],s2:r[1],cols:g.cols!==false&&g.cols!=='false',idx:gi});
   });
-  if (!grids.length) err.push('最少要有一套軸網');
+  if (!grids.length) err.push('At least one grid is required');
   const M={err,L,nL,grids,S};
   if (err.length) return M;
 
@@ -277,38 +277,38 @@ function buildModel(S){
   };
   Object.assign(M,{coord,axLabel,ptLabel,sIdx});
 
-  // 限制區
+  // Zones
   const zones=[];
   (S.zones||[]).forEach((z,zi)=>{
     const x1=coord(z.x1,'x'),x2=coord(z.x2,'x'),y1=coord(z.y1,'y'),y2=coord(z.y2,'y');
-    const nm=z.name||ZONE_ZH[z.type]||'限制區';
-    if ([x1,x2,y1,y2].some(v=>v===null)){err.push(`限制區「${nm}」：軸線位置讀唔到（例：3、B、3+5、T:T2、@12.5）`);return;}
-    const r=range(z.s1,z.s2,`限制區「${nm}」`); if(!r) return;
+    const nm=z.name||ZONE_NAME[z.type]||'Zone';
+    if ([x1,x2,y1,y2].some(v=>v===null)){err.push(`Zone "${nm}": grid position not recognised (e.g. 3, B, 3+5, T:T2, @12.5)`);return;}
+    const r=range(z.s1,z.s2,`Zone "${nm}"`); if(!r) return;
     zones.push({src:zi,type:z.type,name:nm,x1:Math.min(x1,x2),x2:Math.max(x1,x2),y1:Math.min(y1,y2),y2:Math.max(y1,y2),s1:r[0],s2:r[1],head:num(z.head),svc:num(z.svc)});
   });
-  // 牆
+  // Walls
   const walls=[];
   (S.walls||[]).forEach((w,wi)=>{
-    const nm=w.name||`牆${wi+1}`;
+    const nm=w.name||`Wall ${wi+1}`;
     const x1=coord(w.x1,'x'),y1=coord(w.y1,'y'),x2=coord(w.x2,'x'),y2=coord(w.y2,'y');
-    if ([x1,y1,x2,y2].some(v=>v===null)){err.push(`牆「${nm}」：位置讀唔到`);return;}
-    const r=range(w.s1,w.s2,`牆「${nm}」`); if(!r) return;
+    if ([x1,y1,x2,y2].some(v=>v===null)){err.push(`Wall "${nm}": position not recognised`);return;}
+    const r=range(w.s1,w.s2,`Wall "${nm}"`); if(!r) return;
     const n=Math.max(1,Math.round(num(w.n)||1)), dx=num(w.dx)||0, dy=num(w.dy)||0;
     for (let i=0;i<n;i++) walls.push({src:wi,inst:i,rowN:n,name:n>1?`${nm} #${i+1}`:nm,x1:x1+i*dx,y1:y1+i*dy,x2:x2+i*dx,y2:y2+i*dy,s1:r[0],s2:r[1]});
   });
-  // 柱點
+  // Column points
   const pts=[], pmap=new Map(), extraCols=[];
   const pkey=(x,y)=>`${Math.round(x*20)}|${Math.round(y*20)}`;
   const addPt=(x,y,s1,s2)=>{ const k=pkey(x,y); let p=pmap.get(k); if(!p){p={id:pts.length,x,y,key:k,label:ptLabel(x,y),ranges:[]};pts.push(p);pmap.set(k,p);} p.ranges.push([s1,s2]); };
   grids.forEach(g=>{ if(!g.cols) return; g.gx.pos.forEach(x=>g.gy.pos.forEach(y=>addPt(x,y,g.s1,g.s2))); });
   (S.columns||[]).forEach((c,ci)=>{
-    const x=coord(c.x,'x'),y=coord(c.y,'y'); if(x===null||y===null){ if(c.x||c.y) err.push(`額外柱「${c.name||ci+1}」：位置讀唔到`); return; }
-    const r=range(c.s1,c.s2,`額外柱「${c.name||ci+1}」`); if(r){ addPt(x,y,r[0],r[1]); extraCols.push({src:ci,x,y,s1:r[0],s2:r[1]}); }
+    const x=coord(c.x,'x'),y=coord(c.y,'y'); if(x===null||y===null){ if(c.x||c.y) err.push(`Extra column "${c.name||ci+1}": position not recognised`); return; }
+    const r=range(c.s1,c.s2,`Extra column "${c.name||ci+1}"`); if(r){ addPt(x,y,r[0],r[1]); extraCols.push({src:ci,x,y,s1:r[0],s2:r[1]}); }
   });
   const removed=[];
   (S.removed||[]).forEach((c,ci)=>{
-    const x=coord(c.x,'x'),y=coord(c.y,'y'); if(x===null||y===null){ err.push(`取消柱第 ${ci+1} 行：位置讀唔到`); return; }
-    const r=range(c.s1,c.s2,`取消柱第 ${ci+1} 行`); if(r) removed.push({src:ci,x,y,s1:r[0],s2:r[1]});
+    const x=coord(c.x,'x'),y=coord(c.y,'y'); if(x===null||y===null){ err.push(`Removed column row ${ci+1}: position not recognised`); return; }
+    const r=range(c.s1,c.s2,`Removed column row ${ci+1}`); if(r) removed.push({src:ci,x,y,s1:r[0],s2:r[1]});
   });
   const inR=(p,s)=>p.ranges.some(r=>r[0]<=s&&s<=r[1]);
   Object.assign(M,{zones,walls,pts,pmap,pkey,inR,extraCols,removed});
@@ -338,7 +338,7 @@ function buildModel(S){
   const present=st=>st==='col'||st==='edge'||st==='core';
   const REMOVED=new Set(['void','colfree','nosupport','manual']);
 
-  // 柱狀態
+  // Column status per storey
   const col=[];
   for (let s=0;s<nL-1;s++){
     col[s]=[];
@@ -378,7 +378,7 @@ function buildModel(S){
   const sides=(iv,v)=>{ let on=false,a=-Infinity,b=Infinity; for(const [p,q] of iv){ if(p-TOL<=v&&v<=q+TOL) on=true; if(q<v-TOL&&q>a) a=q; if(p>v+TOL&&p<b) b=p; } return {on,a:Number.isFinite(a)?a:null,b:Number.isFinite(b)?b:null}; };
   Object.assign(M,{col,present,active,slabAt,nodeSlab,nodeActive,zAct,inside,wallsAt,onSeg,supportAt,REMOVED});
 
-  // 可用結構深度
+  // Available structural depth
   M.depth=L.map((l,k)=>k===0?null:(L[k-1].h-L[k-1].head-L[k-1].svc));
   const availAt=(k,x,y)=>{
     let a=M.depth[k], why='';
@@ -391,7 +391,7 @@ function buildModel(S){
     return {a,why};
   };
 
-  // 轉換點、長跨構件
+  // Transfer points and long-span members
   const tpoints=[], members=[], levelInfo={}, mseen=new Map(), wallOnCols=[];
   const mkMember=(k,dir,c,a,b,t,cant,secondary)=>{
     const key=`${k}|${dir}|${Math.round(c*20)}|${Math.round(a*20)}|${Math.round(b*20)}`;
@@ -439,7 +439,7 @@ function buildModel(S){
       const segs=members.filter(m=>m.k===k).map(m=>({x1:m.x1,y1:m.y1,x2:m.x2,y2:m.y2}));
       pass2.forEach(t=>{ if(!solve(t,segs,true)) unresolved.push(t); });
     }
-    // 斜柱、吊柱
+    // Inclined columns and hangers
     lvPts.forEach(t=>{
       if (t.carries){
         let best=null;
@@ -471,7 +471,7 @@ function buildModel(S){
     if (lvPts.length||lvMembers.length) levelInfo[k]={k,pts:lvPts,members:lvMembers,carries:carriesN,unresolved,plate};
     tpoints.push(...lvPts);
   }
-  // 疊加轉換：構件支座本身亦係下一層嘅轉換點
+  // Stacked transfer: a member's support is itself a transfer point at the level below
   members.forEach(m=>{
     const li=levelInfo[m.k-1]; if(!li) return;
     const keys=new Set(li.pts.map(t=>t.key));
@@ -479,14 +479,14 @@ function buildModel(S){
   });
   (S.specials||[]).forEach((sp,si)=>{
     const span=num(sp.span), avail=num(sp.avail);
-    if (span===null||avail===null){ if(sp.name||sp.span) err.push(`特殊構件「${sp.name||si+1}」：跨度同可用深度要填`); return; }
+    if (span===null||avail===null){ if(sp.name||sp.span) err.push(`Special member "${sp.name||si+1}": span and available depth are required`); return; }
     members.push({key:'sp'+si,id:members.length,k:-1,level:sp.level||'',dir:'',lineLabel:'',ends:[],span,avail,voidName:'',carries:!!sp.carries,cant:!!sp.cant,pts:[],nodes:[],
-      above:num(sp.trussH)||0,below:0,special:true,name:sp.name||`特殊構件${si+1}`});
+      above:num(sp.trussH)||0,below:0,special:true,name:sp.name||`Special member ${si+1}`});
   });
   members.forEach(m=>m.opts=options(m,P));
   Object.assign(M,{members,tpoints,levelInfo,wallOnCols});
 
-  // 柱位取消摘要
+  // Omitted column summary
   const omit=[], edges=[];
   for (const p of pts){
     let run=null;
@@ -500,7 +500,7 @@ function buildModel(S){
   }
   M.omit=omit; M.edges=edges;
 
-  // 分格（畫圖、抗浮、偏心）
+  // Cells (drawing, uplift, eccentricity)
   const xs=new Set(), ys=new Set();
   grids.forEach(g=>{g.gx.pos.forEach(v=>xs.add(+v.toFixed(3)));g.gy.pos.forEach(v=>ys.add(+v.toFixed(3)));});
   zones.forEach(z=>{xs.add(+z.x1.toFixed(3));xs.add(+z.x2.toFixed(3));ys.add(+z.y1.toFixed(3));ys.add(+z.y2.toFixed(3));});
@@ -534,7 +534,7 @@ function options(m,P){
 }
 
 function uplift(M,dlBelow,dlAbove){
-  const {L,nL,S,elev}=M; const gwl=num(S.site.gwl), raftT=num(S.site.raftT)||0;
+  const {nL,S,elev}=M; const gwl=num(S.site.gwl), raftT=num(S.site.raftT)||0;
   if (!elev||gwl===null) return null;
   const under=elev[0]-raftT, U=10*(gwl-under);
   if (U<=0) return {U:0,under,groups:[]};
@@ -585,60 +585,60 @@ function foundation(M){
     gwlAbove:gwl!==null&&gwl>under,adjacent:!!S.site.adjacent,rock,gwl,ground,tall:M.nL>20};
 }
 
-const SYS_ZH={RC:'RC梁',PT:'後張梁',ST:'鋼板梁',TRUSS:'鋼桁架',STRUSS:'層高鋼桁架',RCWALL:'層高轉換牆',COVERED:'由桁架承托',PLATE:'轉換板',INCL:'斜柱',HANG:'吊柱＋桁架',NOTREQ:'唔使（已用斜柱）'};
+const SYS_SHORT={RC:'RC beam',PT:'PT beam',ST:'Steel girder',TRUSS:'Steel truss',STRUSS:'Storey-deep truss',RCWALL:'Storey-deep wall',COVERED:'By truss',PLATE:'Transfer plate',INCL:'Inclined column',HANG:'Hanger + truss',NOTREQ:'Not req. (inclined col.)'};
 const SYS_EN={RC:'reinforced concrete girder',PT:'post-tensioned concrete girder',ST:'composite steel plate girder',TRUSS:'steel truss within the floor zone',STRUSS:'storey-deep steel truss',RCWALL:'storey-deep RC transfer wall / deep beam',COVERED:'supported by the storey-deep truss (chord member)',PLATE:'transfer plate',INCL:'not required (load taken by inclined column)',HANG:'hung from storey-deep truss above via steel hangers',NOTREQ:'not required (load taken by inclined column)'};
+const WHY_SHORT={void:'atrium / void',colfree:'column-free zone',nosupport:'no column below',manual:'removed manually'};
 
 function issues(M){
   const out=[]; const P=M.S.params; const add=(sev,t)=>out.push({sev,t});
-  const why=w=>({void:'中庭',colfree:'無柱區',nosupport:'下層冇柱承托',manual:'人手取消'}[w]);
-  M.omit.forEach(o=>add('high',`柱 ${o.node} 喺 ${M.L[o.s1].name} 至 ${M.L[o.s2+1].name} 之間取消（${[...o.why].map(why).join('、')}）`));
-  M.edges.forEach(e=>add('mid',`柱 ${e.node} 喺 ${M.L[e.s1].name}${e.s1!==e.s2?'–'+M.L[e.s2].name:''} 落喺無柱區邊線：建議柱身向外偏移，令內側柱面對齊軸線`));
+  M.omit.forEach(o=>add('high',`Column ${o.node} omitted between ${M.L[o.s1].name} and ${M.L[o.s2+1].name} (${[...o.why].map(w=>WHY_SHORT[w]).join(', ')})`));
+  M.edges.forEach(e=>add('mid',`Column ${e.node} at ${M.L[e.s1].name}${e.s1!==e.s2?'–'+M.L[e.s2].name:''} lies on the edge of a column-free zone: offset it outward so the inner face aligns with the grid line`));
   Object.values(M.levelInfo).forEach(li=>{
     const cols=li.pts.filter(t=>t.kinds.has('col')).length, wl=li.pts.filter(t=>t.kinds.has('wall')).length;
-    if (cols||wl) add('high',`${M.L[li.k].name}：${cols?cols+' 支柱':''}${cols&&wl?'、':''}${wl?wl+' 個牆端':''} 下面冇直接承托 → 要轉換（見分析表）`);
-    if (li.unresolved.length) add('high',`${M.L[li.k].name}：${li.unresolved.length} 個轉換點喺兩個方向都搵唔到支座（例如 ${li.unresolved.slice(0,3).map(t=>t.label).join('、')}）→ 轉換板或人手安排二級轉換梁【需人手判斷】`);
-    if (li.members.some(m=>m.secondary)) add('mid',`${M.L[li.k].name}：需要二級轉換梁（梁承托喺另一條轉換梁上）→ 傳力路徑較複雜，可考慮轉換板`);
-    if (li.plate&&li.plate.suggested) add('mid',`${M.L[li.k].name}：轉換點多／不規則 → 可考慮轉換板，厚約 ${f(li.plate.t)}m（可用 ${f(li.plate.avail)}m${li.plate.H?'，相鄰機房／避難層高 '+f(li.plate.H,1)+'m':''}）${li.plate.ok?'':' → 深度不足'}`);
+    if (cols||wl) add('high',`${M.L[li.k].name}: ${cols?cols+' column(s)':''}${cols&&wl?', ':''}${wl?wl+' wall end(s)':''} not directly supported below → transfer required (see analysis tables)`);
+    if (li.unresolved.length) add('high',`${M.L[li.k].name}: ${li.unresolved.length} transfer point(s) have no support in either direction (e.g. ${li.unresolved.slice(0,3).map(t=>t.label).join(', ')}) → transfer plate or manually arranged secondary transfer beams [MANUAL JUDGEMENT]`);
+    if (li.members.some(m=>m.secondary)) add('mid',`${M.L[li.k].name}: secondary transfer beams needed (beam supported on another transfer beam) → complex load path; consider a transfer plate`);
+    if (li.plate&&li.plate.suggested) add('mid',`${M.L[li.k].name}: many / irregular transfer points → consider a transfer plate approx. ${f(li.plate.t)} m thick (available ${f(li.plate.avail)} m${li.plate.H?', adjacent plant / refuge storey '+f(li.plate.H,1)+' m':''})${li.plate.ok?'':' → insufficient depth'}`);
     const incl=li.pts.filter(t=>t.incl&&t.incl.ok);
-    if (incl.length) add('info',`${M.L[li.k].name}：${incl.length} 支柱偏移細，可用斜柱（例如 ${incl[0].label} → ${incl[0].incl.label}，偏 ${f(incl[0].incl.d,1)}m／層高 ${f(incl[0].incl.h,1)}m）；樓板要承受水平分力【需人手判斷】`);
+    if (incl.length) add('info',`${M.L[li.k].name}: ${incl.length} column(s) with small offset could be inclined (e.g. ${incl[0].label} → ${incl[0].incl.label}, offset ${f(incl[0].incl.d,1)} m over ${f(incl[0].incl.h,1)} m); slabs must resist the horizontal component [MANUAL JUDGEMENT]`);
   });
   M.members.forEach(m=>{
-    const okList=m.opts.filter(o=>o.ok).map(o=>SYS_ZH[o.sys]);
-    const where=m.special?m.name:`${m.level} 軸 ${m.lineLabel}（${m.ends.join(' 至 ')}）`;
+    const okList=m.opts.filter(o=>o.ok).map(o=>SYS_SHORT[o.sys]);
+    const where=m.special?m.name:`${m.level} grid ${m.lineLabel} (${m.ends.join(' to ')})`;
     add(okList.length?(m.carries?'high':'mid'):'high',
-      `${where}：${m.cant?'懸臂':'跨度'} ${f(m.span,1)}m，可用深度 ${f(m.avail)}m${m.voidName?'（'+m.voidName+'上蓋）':''}${m.carries?'，承托上層柱／牆':''}${m.secondary?'，二級轉換':''}${m.stacked?'，【疊加轉換：支座本身亦要轉換】':''} → 可行：${okList.join('、')||'冇（要改柱位、轉換板或其他體系）'}`);
+      `${where}: ${m.cant?'cantilever':'span'} ${f(m.span,1)} m, available depth ${f(m.avail)} m${m.voidName?' (over '+m.voidName+')':''}${m.carries?', supports column(s) / wall(s) above':''}${m.secondary?', secondary transfer':''}${m.stacked?', [STACKED TRANSFER: its support is also transferred]':''} → feasible: ${okList.join(', ')||'none (revise column layout, use transfer plate or another system)'}`);
   });
-  if (M.wallOnCols.length) add('info',`${M.wallOnCols.length} 幅牆兩端有柱承托但下面冇牆：牆本身可作深梁跨越（需人手核算）`);
+  if (M.wallOnCols.length) add('info',`${M.wallOnCols.length} wall(s) supported by columns at both ends but no wall below: the wall can span as a deep beam (check manually)`);
   const allSp=M.grids.flatMap(g=>g.cols?[...g.gx.sp,...g.gy.sp]:[]);
   if (allSp.length){
     const maxSp=Math.max(...allSp); const minDepth=Math.min(...M.depth.filter(d=>d!==null));
-    if (maxSp/P.beamCont>minDepth) add('mid',`一般跨度 ${maxSp}m 需梁深約 ${f(maxSp/P.beamCont)}m，大過最細可用深度 ${f(minDepth)}m：考慮平板、後張板或加密柱網`);
-    const minS=num(M.S.rules.minSpacing); if (minS){ const bad=allSp.filter(v=>v<minS-EPS); if(bad.length) add('mid',`有柱距細過最小柱距 ${minS}m：${[...new Set(bad)].join('、')}m`); }
+    if (maxSp/P.beamCont>minDepth) add('mid',`Typical span ${maxSp} m needs a beam approx. ${f(maxSp/P.beamCont)} m deep, more than the smallest available depth ${f(minDepth)} m: consider flat slab, PT slab or a denser column grid`);
+    const minS=num(M.S.rules.minSpacing); if (minS){ const bad=allSp.filter(v=>v<minS-EPS); if(bad.length) add('mid',`Column spacing below the minimum ${minS} m: ${[...new Set(bad)].join(', ')} m`); }
   }
   const la=M.lateral;
-  if (la&&la.cores.length&&(la.rx>0.1||la.ry>0.1)) add('mid',`核心筒偏心：ex = ${f(la.ex,1)}m（${f(la.rx*100,0)}%），ey = ${f(la.ey,1)}m（${f(la.ry*100,0)}%）→ 有扭轉，要遠端剛接框架或其他抗側構件`);
-  if (la&&!la.cores.length&&!la.wallsN) add('mid','冇核心筒或牆：側向穩定要靠剛接框架或斜撐');
-  if (M.nL>20) add('info','高層建築：轉換層上下剛度突變、風荷載及側移要另行核算【需人手判斷】');
+  if (la&&la.cores.length&&(la.rx>0.1||la.ry>0.1)) add('mid',`Core eccentricity: ex = ${f(la.ex,1)} m (${f(la.rx*100,0)}%), ey = ${f(la.ey,1)} m (${f(la.ry*100,0)}%) → torsion; provide rigid frames or other lateral elements at the far side`);
+  if (la&&!la.cores.length&&!la.wallsN) add('mid','No core or walls: lateral stability must rely on rigid frames or bracing');
+  if (M.nL>20) add('info','High-rise: stiffness change at the transfer level, wind load and drift to be checked separately [MANUAL JUDGEMENT]');
   const up=M.uplift.rc;
-  if (up&&up.U>0){ const g=up.groups[0]; if(g&&g.fos<P.fosUp) add('high',`抗浮：浮力 ${f(up.U,0)} kPa；最差範圍 ${g.where} 恆載約 ${f(g.W,0)} kPa，安全系數 ${f(g.fos)} < ${P.fosUp} → 要抗拔樁／岩石錨桿`); }
+  if (up&&up.U>0){ const g=up.groups[0]; if(g&&g.fos<P.fosUp) add('high',`Uplift: water pressure ${f(up.U,0)} kPa; worst area ${g.where} dead load approx. ${f(g.W,0)} kPa, FOS ${f(g.fos)} < ${P.fosUp} → tension piles / rock anchors required`); }
   const fd=M.found;
-  if (fd&&fd.exc>0&&fd.adjacent) add('mid',`開挖深約 ${f(fd.exc,1)}m，緊貼鄰樓 → 要剛性擋土牆及控制沉降`);
+  if (fd&&fd.exc>0&&fd.adjacent) add('mid',`Excavation approx. ${f(fd.exc,1)} m next to adjoining buildings → stiff retaining wall and settlement control required`);
   return out;
 }
 
 /* =====================================================================
-   樓宇方案
+   Building schemes
    ===================================================================== */
 const COST={RC:1,PT:1.6,RCWALL:1.8,ST:2.0,TRUSS:2.3,STRUSS:2.2,COVERED:0,PLATE:1.1,INCL:0.7,HANG:2.6,NOTREQ:0};
 const FAM={
-  A:{zh:'RC框架＋核心筒，RC／後張長跨及轉換梁',en:'Reinforced concrete frame and core with RC / post-tensioned long-span and transfer girders',prefs:['RC','PT','RCWALL'],mat:'rc',base:0},
-  B:{zh:'鋼／組合結構框架（地庫及核心筒RC）',en:'Structural steel / composite frame with RC core and basement',prefs:['ST','TRUSS','STRUSS'],mat:'st',base:1.0},
-  C:{zh:'RC框架＋核心筒，機房／避難層設層高鋼桁架',en:'RC frame and core with storey-deep steel transfer trusses in the plant / refuge floor',prefs:['RC','STRUSS','PT','TRUSS'],prefsCarry:['STRUSS','RC','PT','TRUSS'],mat:'hy',base:0.8,must:['STRUSS']},
-  D:{zh:'RC框架＋核心筒，長跨用鋼板梁',en:'RC frame and core with structural steel long-span girders',prefs:['RC','ST','TRUSS'],mat:'hy',base:0.8,must:['ST','TRUSS']},
-  E:{zh:'RC結構＋轉換板',en:'RC structure with a transfer plate at the transfer level',prefs:['RC','PT','RCWALL'],plate:true,mat:'rc',base:1.0,must:['PLATE']},
-  F:{zh:'RC結構，機房／避難層設層高轉換牆（深梁）',en:'RC structure with storey-deep transfer walls (deep beams) in the plant / refuge floor',prefs:['RC','PT','RCWALL'],prefsCarry:['RCWALL','RC','PT'],mat:'rc',base:0.4,must:['RCWALL']},
-  G:{zh:'RC結構，偏移細嘅柱改用斜柱',en:'RC structure with inclined (raking) columns where the offset is small',prefs:['RC','PT','RCWALL'],incl:true,mat:'rc',base:0.5,must:['INCL']},
-  H:{zh:'吊掛結構：上層桁架經吊柱承托下層',en:'Hung structure: lower floors suspended from storey-deep trusses above',prefs:['RC','PT'],hang:true,mat:'hy',base:1.2,must:['HANG']}
+  A:{short:'RC frame + core, RC / PT long-span and transfer girders',en:'Reinforced concrete frame and core with RC / post-tensioned long-span and transfer girders',prefs:['RC','PT','RCWALL'],mat:'rc',base:0},
+  B:{short:'Steel / composite frame (RC basement and core)',en:'Structural steel / composite frame with RC core and basement',prefs:['ST','TRUSS','STRUSS'],mat:'st',base:1.0},
+  C:{short:'RC frame + core, storey-deep steel trusses in plant / refuge floor',en:'RC frame and core with storey-deep steel transfer trusses in the plant / refuge floor',prefs:['RC','STRUSS','PT','TRUSS'],prefsCarry:['STRUSS','RC','PT','TRUSS'],mat:'hy',base:0.8,must:['STRUSS']},
+  D:{short:'RC frame + core, steel long-span girders',en:'RC frame and core with structural steel long-span girders',prefs:['RC','ST','TRUSS'],mat:'hy',base:0.8,must:['ST','TRUSS']},
+  E:{short:'RC structure + transfer plate',en:'RC structure with a transfer plate at the transfer level',prefs:['RC','PT','RCWALL'],plate:true,mat:'rc',base:1.0,must:['PLATE']},
+  F:{short:'RC structure, storey-deep transfer walls in plant / refuge floor',en:'RC structure with storey-deep transfer walls (deep beams) in the plant / refuge floor',prefs:['RC','PT','RCWALL'],prefsCarry:['RCWALL','RC','PT'],mat:'rc',base:0.4,must:['RCWALL']},
+  G:{short:'RC structure, inclined columns where offset is small',en:'RC structure with inclined (raking) columns where the offset is small',prefs:['RC','PT','RCWALL'],incl:true,mat:'rc',base:0.5,must:['INCL']},
+  H:{short:'Hung structure: lower floors hung from trusses above',en:'Hung structure: lower floors suspended from storey-deep trusses above',prefs:['RC','PT'],hang:true,mat:'hy',base:1.2,must:['HANG']}
 };
 
 function evalFamily(M,key){
@@ -692,18 +692,18 @@ function recommend(M,e1,e2){
   const give=(name,w,why,en)=>{ rows.push({name,w,why,en}); if(w===0)pts[0]++; else if(w===1)pts[1]++; else {pts[0]+=.5;pts[1]+=.5;} };
   const m=[e1.F.mat,e2.F.mat];
   const better=(v1,v2,low)=>Math.abs(v1-v2)<1e-9?2:((low?v1<v2:v1>v2)?0:1);
-  give('造價／常用做法',better(e1.cost,e2.cost,true),'按構件類型估算相對造價','lower overall cost using common construction methods');
+  give('Cost / common practice',better(e1.cost,e2.cost,true),'Relative cost estimated from member types','lower overall cost using common construction methods');
   const fire=x=>x==='rc'?2:x==='hy'?1:0;
-  give('防火',better(fire(m[0]),fire(m[1])),'混凝土本身有防火能力，鋼構要額外保護','better inherent fire resistance');
+  give('Fire resistance',better(fire(m[0]),fire(m[1])),'Concrete is inherently fire resistant; steel needs protection','better inherent fire resistance');
   const wt=x=>x==='st'?0:1;
-  if (upGov) give('抗浮',better(wt(m[0]),wt(m[1])),'地下水浮力控制，結構較重有利','heavier structure helps resist buoyancy');
+  if (upGov) give('Uplift',better(wt(m[0]),wt(m[1])),'Buoyancy governs; a heavier structure helps','heavier structure helps resist buoyancy');
   const spd=x=>x==='st'?2:x==='hy'?1:0;
-  give('工期',better(spd(m[0]),spd(m[1])),'鋼構預製，安裝快','shorter construction period');
-  give('結構深度餘量',better(e1.margin,e2.margin),'最緊構件嘅深度餘量','larger depth margin in the critical members');
+  give('Programme',better(spd(m[0]),spd(m[1])),'Prefabricated steel erects faster','shorter construction period');
+  give('Depth margin',better(e1.margin,e2.margin),'Depth margin of the most critical member','larger depth margin in the critical members');
   const bld=x=>x==='rc'?2:x==='hy'?1:0;
-  give('本地施工經驗／單一工種',better(bld(m[0]),bld(m[1])),'香港承建商最熟悉RC，混合結構涉及多工種','familiar to local contractors with fewer trade interfaces');
+  give('Local practice / single trade',better(bld(m[0]),bld(m[1])),'HK contractors are most familiar with RC; hybrid schemes involve more trades','familiar to local contractors with fewer trade interfaces');
   const sim=e=>-(e.used.has('PLATE')?2:0)-(e.used.has('HANG')?2:0)-(e.used.has('INCL')?0.5:0)-(e.used.has('STRUSS')||e.used.has('RCWALL')?0.5:0);
-  give('傳力路徑簡潔',better(sim(e1),sim(e2)),'轉換板、吊掛結構傳力較複雜','simpler and more direct load path');
+  give('Simple load path',better(sim(e1),sim(e2)),'Transfer plates and hung structures have more complex load paths','simpler and more direct load path');
   return {rows,pts,rec:pts[0]>=pts[1]?0:1};
 }
 
@@ -822,45 +822,45 @@ function advText(M,e){
 }
 
 /* =====================================================================
-   跨度模組（橋、行人天橋、屋面）
+   Span module (bridges, footbridges, roofs)
    ===================================================================== */
 const SPAN_LIB = {
   bridge:[
-    {id:'PPC',zh:'預製預應力混凝土梁＋現澆橋面',en:'precast prestressed concrete beams with in-situ deck slab',ratio:18,maxSpan:40,cantRatio:0,cost:1.0,mat:'rc',falsework:false,lift:true,
+    {id:'PPC',name:'Precast prestressed concrete beams + in-situ deck',en:'precast prestressed concrete beams with in-situ deck slab',ratio:18,maxSpan:40,cantRatio:0,cost:1.0,mat:'rc',falsework:false,lift:true,
       pros:['Precast beams lifted in during short night possessions; no falsework over the restricted envelope','Low maintenance, economical for medium spans'],cons:['Intermediate pier may be needed for longer crossings','Heavy lifts need large crane and road access']},
-    {id:'PTBOX',zh:'現澆後張混凝土箱梁（連續）',en:'in-situ post-tensioned concrete box girder (continuous)',ratio:22,maxSpan:70,cantRatio:10,cost:1.2,mat:'rc',falsework:true,lift:false,
+    {id:'PTBOX',name:'In-situ post-tensioned box girder (continuous)',en:'in-situ post-tensioned concrete box girder (continuous)',ratio:22,maxSpan:70,cantRatio:10,cost:1.2,mat:'rc',falsework:true,lift:false,
       pros:['Efficient for longer continuous spans, good torsional stiffness','Durable, low maintenance'],cons:['Needs falsework / formwork under the deck','Longer construction period on site']},
-    {id:'COMP',zh:'鋼－混凝土組合梁',en:'steel–concrete composite plate / box girders',ratio:22,maxSpan:70,cantRatio:10,cost:1.4,mat:'st',falsework:false,lift:true,
+    {id:'COMP',name:'Steel–concrete composite girders',en:'steel–concrete composite plate / box girders',ratio:22,maxSpan:70,cantRatio:10,cost:1.4,mat:'st',falsework:false,lift:true,
       pros:['Light girders erected quickly during possessions; deck cast on permanent formwork','Shallow depth for given span'],cons:['Painting / maintenance of steelwork','Higher material cost']},
-    {id:'THRU',zh:'鋼下承式／半下承式梁（極淺結構深度）',en:'steel through / half-through girders (very shallow construction depth)',fixedDepth:1.0,maxSpan:60,cantRatio:0,cost:1.8,mat:'st',falsework:false,lift:true,
+    {id:'THRU',name:'Steel through / half-through girders (very shallow depth)',en:'steel through / half-through girders (very shallow construction depth)',fixedDepth:1.0,maxSpan:60,cantRatio:0,cost:1.8,mat:'st',falsework:false,lift:true,
       pros:['Minimum construction depth below the carriageway','Main girders double as parapets'],cons:['Girders above deck limit future widening; U-frame stability','Expensive fabrication']},
-    {id:'SLAB',zh:'現澆RC／後張實心板',en:'in-situ RC / post-tensioned solid slab',ratio:25,maxSpan:20,cantRatio:10,cost:0.8,mat:'rc',falsework:true,lift:false,
+    {id:'SLAB',name:'In-situ RC / PT solid slab',en:'in-situ RC / post-tensioned solid slab',ratio:25,maxSpan:20,cantRatio:10,cost:0.8,mat:'rc',falsework:true,lift:false,
       pros:['Simple, robust, shallow for short spans'],cons:['Falsework required; only for short spans']}
   ],
   footbridge:[
-    {id:'STG',zh:'鋼箱梁／雙工字鋼梁',en:'steel box girder / twin steel I-girders with composite or steel deck',ratio:25,maxSpan:40,cantRatio:12,cost:1.0,mat:'st',falsework:false,lift:true,light:true,
+    {id:'STG',name:'Steel box girder / twin steel I-girders',en:'steel box girder / twin steel I-girders with composite or steel deck',ratio:25,maxSpan:40,cantRatio:12,cost:1.0,mat:'st',falsework:false,lift:true,light:true,
       pros:['Light, prefabricated off site, lifted in one piece','Simple bearings and connections'],cons:['Vibration (natural frequency > 3 Hz) to be checked','Corrosion protection / maintenance']},
-    {id:'STT',zh:'鋼桁架（行人喺桁架內行）',en:'steel walk-through truss (Warren / Vierendeel) with deck on the bottom chord',fixedDepth:0.6,maxSpan:60,cantRatio:0,cantMax:20,cost:1.2,mat:'st',falsework:false,lift:true,light:true,
+    {id:'STT',name:'Steel walk-through truss',en:'steel walk-through truss (Warren / Vierendeel) with deck on the bottom chord',fixedDepth:0.6,maxSpan:60,cantRatio:0,cantMax:20,cost:1.2,mat:'st',falsework:false,lift:true,light:true,
       pros:['Very shallow construction depth below deck','Truss sides act as protective barriers / railings'],cons:['More fabrication and connections','Visual bulk']},
-    {id:'PCB',zh:'預製預應力混凝土梁',en:'precast prestressed concrete beams',ratio:20,maxSpan:35,cantRatio:0,cost:0.9,mat:'rc',falsework:false,lift:true,heavy:true,
+    {id:'PCB',name:'Precast prestressed concrete beams',en:'precast prestressed concrete beams',ratio:20,maxSpan:35,cantRatio:0,cost:0.9,mat:'rc',falsework:false,lift:true,heavy:true,
       pros:['Low maintenance, robust'],cons:['Heavy: larger supports, foundations and cranes','Not a "light structure"']},
-    {id:'STAY',zh:'斜拉／桅桿吊索鋼橋面',en:'cable-stayed / mast-supported steel deck',fixedDepth:0.6,maxSpan:80,cantRatio:0,cantMax:30,cost:2.5,mat:'st',falsework:false,lift:true,light:true,
+    {id:'STAY',name:'Cable-stayed / mast-supported steel deck',en:'cable-stayed / mast-supported steel deck',fixedDepth:0.6,maxSpan:80,cantRatio:0,cantMax:30,cost:2.5,mat:'st',falsework:false,lift:true,light:true,
       pros:['Long spans / cantilevers with very few supports','Slender deck'],cons:['Complex analysis and detailing; mast and anchorage needed','Expensive']}
   ],
   roof:[
-    {id:'PORTAL',zh:'鋼門式框架（加腋屋面梁）',en:'steel portal frames with haunched rafters',ratio:35,maxSpan:45,cantRatio:15,cost:1.0,mat:'st',
+    {id:'PORTAL',name:'Steel portal frames (haunched rafters)',en:'steel portal frames with haunched rafters',ratio:35,maxSpan:45,cantRatio:15,cost:1.0,mat:'st',
       pros:['Simple, economical, fast to erect','Portal action provides in-plane stability'],cons:['Limited span; column bending moments larger']},
-    {id:'TRUSS',zh:'鋼屋架／桁架（懸臂桁架要後跨錨固）',en:'steel roof trusses (cantilever trusses with back-span tie-down)',ratio:12,maxSpan:90,cantRatio:7,cost:1.3,mat:'st',
+    {id:'TRUSS',name:'Steel roof trusses (cantilever trusses with back-span tie-down)',en:'steel roof trusses (cantilever trusses with back-span tie-down)',ratio:12,maxSpan:90,cantRatio:7,cost:1.3,mat:'st',
       pros:['Efficient for long spans / cantilevers','Services can pass through the truss depth'],cons:['Greater structural depth','More fabrication']},
-    {id:'SPACE',zh:'空間網架（雙層網格）',en:'space frame / double-layer grid',ratio:20,maxSpan:100,cantRatio:8,cost:1.6,mat:'st',
+    {id:'SPACE',name:'Space frame / double-layer grid',en:'space frame / double-layer grid',ratio:20,maxSpan:100,cantRatio:8,cost:1.6,mat:'st',
       pros:['Two-way action, few supports, high redundancy','Modular, prefabricated nodes'],cons:['Costly nodes; many components','Erection needs staging or lifting in large panels']},
-    {id:'MAST',zh:'桅桿拉索懸臂屋面',en:'mast-and-tie (cable-stayed) roof',fixedDepth:1.0,maxSpan:80,cantRatio:0,cantMax:50,cost:2.0,mat:'st',
+    {id:'MAST',name:'Mast-and-tie (cable-stayed) cantilever roof',en:'mast-and-tie (cable-stayed) roof',fixedDepth:1.0,maxSpan:80,cantRatio:0,cantMax:50,cost:2.0,mat:'st',
       pros:['Long cantilevers with slender roof members','Clear unobstructed space below'],cons:['Wind uplift reversal must be resisted (back-stays / dead weight)','Complex detailing; mast foundations in tension']},
-    {id:'ARCH',zh:'鋼拱／拱形框架（加拉桿）',en:'steel arches / arched frames with ties',fixedDepth:0.8,maxSpan:80,cantRatio:0,cost:1.5,mat:'st',noCant:true,
+    {id:'ARCH',name:'Steel arches / arched frames with ties',en:'steel arches / arched frames with ties',fixedDepth:0.8,maxSpan:80,cantRatio:0,cost:1.5,mat:'st',noCant:true,
       pros:['Slender members, elegant for transparent / glazed roofs'],cons:['Horizontal thrust needs ties or buttresses','Asymmetric load / buckling checks']}
   ]
 };
-const KIND_ZH={bridge:'行車橋',footbridge:'行人天橋',roof:'屋面／看台／溫室'};
+const KIND_NAME={bridge:'Road bridge',footbridge:'Footbridge',roof:'Roof / stand / glasshouse'};
 
 function solveRun(run,sys){
   const Lr=num(run.L); if(!Lr||Lr<=0) return null;
@@ -875,13 +875,13 @@ function solveRun(run,sys){
   const xsAll=[]; for(let x=0;x<Lr-EPS;x+=step) xsAll.push(+x.toFixed(4)); xsAll.push(Lr);
   zs.forEach(z=>[z.from,z.to].forEach(v=>{ if(v>EPS&&v<Lr-EPS) xsAll.push(v); }));
   const xs=[...new Set(xsAll)].sort((a,b)=>a-b).filter(allowed);
-  const n=xs.length; if(n<2) return {ok:false,why:'可放支座嘅位置少過兩個'};
+  const n=xs.length; if(n<2) return {ok:false,why:'Fewer than two possible support positions'};
   const maxC=Math.min(n,maxSup||40);
-  // 動態規劃：總成本 = 構件彎矩指標（跨度²/8 + 懸臂²/2）× 類型造價系數 + 中間支座成本
+  // Dynamic programming: total cost = member bending index (span²/8 + cantilever²/2) × system cost factor + intermediate support cost
   const Csup={bridge:200,footbridge:60,roof:20}[run.kind]??60;
   const supCost=x=>(x>EPS&&x<Lr-EPS)?Csup:0;
   const INF={obj:Infinity};
-  let cur=xs.map(x=>{ if(run.startSup) return x<=EPS?{obj:0,mx:0,req:0,prev:-1}:INF; const r=cantReq(x,0,x); return r===null?INF:{obj:x*x/2*sys.cost+supCost(x),mx:x,req:r,prev:-1}; });
+  const cur=xs.map(x=>{ if(run.startSup) return x<=EPS?{obj:0,mx:0,req:0,prev:-1}:INF; const r=cantReq(x,0,x); return r===null?INF:{obj:x*x/2*sys.cost+supCost(x),mx:x,req:r,prev:-1}; });
   const dp=[null,cur];
   let best=null;
   for (let c=1;c<=maxC;c++){
@@ -897,7 +897,7 @@ function solveRun(run,sys){
     if (!any) break;
     dp.push(nx);
   }
-  if (!best) return {ok:false,why:`喺跨度上限 ${sys.maxSpan}m、深度限制、支座數目限制下搵唔到可行支座排列`};
+  if (!best) return {ok:false,why:`No feasible support arrangement within max. span ${sys.maxSpan} m, depth limits and support-count limit`};
   const sup=[]; let c=best.c, i=best.i; while(i>=0&&c>=1){ sup.unshift(xs[i]); i=dp[c][i].prev; c--; }
   const spans=[]; for(let k=0;k<sup.length-1;k++) spans.push({a:sup[k],b:sup[k+1],s:sup[k+1]-sup[k],req:spanReq(sup[k],sup[k+1]),lim:depthLim(sup[k],sup[k+1])});
   const cants=[]; if(!run.startSup&&sup[0]>EPS) cants.push({end:'start',a:0,b:sup[0],s:sup[0],req:cantReq(sup[0],0,sup[0]),back:spans[0]?.s??0});
@@ -907,7 +907,7 @@ function solveRun(run,sys){
 }
 function evalRun(run){
   const lib=SPAN_LIB[run.kind]||SPAN_LIB.bridge;
-  const res=lib.map(sys=>{ const r=solveRun(run,sys); if(!r) return {sys,ok:false,why:'長度未填'}; if(!r.ok) return {...r,sys};
+  const res=lib.map(sys=>{ const r=solveRun(run,sys); if(!r) return {sys,ok:false,why:'Length not entered'}; if(!r.ok) return {...r,sys};
     let score=r.obj/10;
     if (run.possession&&!sys.lift) score+=20;
     if (run.light&&sys.heavy) score+=10;
@@ -951,11 +951,11 @@ function runText(run,r,label){
 }
 
 /* =====================================================================
-   介面
+   User interface
    ===================================================================== */
 let M=null;
 const $=s=>document.querySelector(s);
-const storeyOpts=(blank)=>()=> (blank?[['','（全部）']]:[]).concat(S.levels.slice(0,-1).map(l=>[l.name,l.name]));
+const storeyOpts=(blank)=>()=> (blank?[['','(all)']]:[]).concat(S.levels.slice(0,-1).map(l=>[l.name,l.name]));
 
 function tableEditor(host, rows, cols, onStruct){
   const wrap=document.createElement('div'); wrap.className='tblwrap';
@@ -972,7 +972,7 @@ function tableEditor(host, rows, cols, onStruct){
         el.innerHTML=opts.map(([v,t])=>`<option value="${esc(v)}">${esc(t)}</option>`).join('');
         if (r[c.key]===undefined) r[c.key]=opts[0]?.[0]??'';
         const cur=r[c.key]??'';
-        if (!opts.some(o=>o[0]===cur)) el.insertAdjacentHTML('afterbegin',`<option value="${esc(cur)}">${esc(cur)}（不存在）</option>`);
+        if (!opts.some(o=>o[0]===cur)) el.insertAdjacentHTML('afterbegin',`<option value="${esc(cur)}">${esc(cur)} (missing)</option>`);
         el.value=cur;
       } else if (c.type==='check'){ el=document.createElement('input'); el.type='checkbox'; el.checked=!!r[c.key]&&r[c.key]!=='false'; }
       else { el=document.createElement('input'); el.value=r[c.key]??''; if(c.type==='num') el.className='n'; if(c.type==='wide') el.className='w'; if(c.ph) el.placeholder=c.ph; }
@@ -982,12 +982,12 @@ function tableEditor(host, rows, cols, onStruct){
       td.appendChild(el); tr.appendChild(td);
     });
     const td=document.createElement('td'); td.style.whiteSpace='nowrap';
-    const dup=document.createElement('button'); dup.textContent='複製'; dup.onclick=()=>{rows.splice(ri+1,0,clone(r));onStruct();changed();};
-    const del=document.createElement('button'); del.textContent='刪除'; del.onclick=()=>{rows.splice(ri,1);onStruct();changed();};
+    const dup=document.createElement('button'); dup.textContent='Copy'; dup.onclick=()=>{rows.splice(ri+1,0,clone(r));onStruct();changed();};
+    const del=document.createElement('button'); del.textContent='Delete'; del.onclick=()=>{rows.splice(ri,1);onStruct();changed();};
     td.append(dup,' ',del); tr.appendChild(td); tb.appendChild(tr);
   });
   t.appendChild(tb); wrap.appendChild(t); host.appendChild(wrap);
-  const add=document.createElement('button'); add.textContent='＋ 新增一行';
+  const add=document.createElement('button'); add.textContent='+ Add row';
   add.onclick=()=>{ const n={}; cols.forEach(c=>{ n[c.key]=c.type==='check'?(c.def??false):(c.def??''); if(c.type==='select'&&c.def===undefined){const o=typeof c.options==='function'?c.options():c.options;n[c.key]=o[0]?.[0]??'';} }); rows.push(n); onStruct(); changed(); };
   add.style.marginTop='6px'; host.appendChild(add);
 }
@@ -1003,92 +1003,91 @@ function card(host,title,hint){ const c=document.createElement('div'); c.classNa
 function renderInput(){
   const h=$('#tab-input'); h.innerHTML='';
   const re=()=>renderInput();
-  const c0=card(h,'項目'); const r0=document.createElement('div'); r0.className='row'; r0.appendChild(field('名稱',S,'title',{w:'360px'})); c0.appendChild(r0);
+  const c0=card(h,'Project'); const r0=document.createElement('div'); r0.className='row'; r0.appendChild(field('Title',S,'title',{w:'360px'})); c0.appendChild(r0);
   const dh=document.createElement('div'); dh.id='drawHost'; h.appendChild(dh); renderDraw();
 
-  const c2=card(h,'樓層表','由最低層填至最高層。層高 = 由本層至上一層嘅距離；淨空同機電層亦係指本層。最頂一行（天面）只填名稱。「可放桁架／斜撐」= 該層冇柱位或結構限制（機房層、避難層、停車場）。');
+  const c2=card(h,'Floor table','Enter from the lowest floor to the highest. Floor-to-floor height = distance from this floor to the next floor up; headroom and services zone also refer to this storey. The last row (roof) needs a name only. "Truss / bracing allowed" = no column or structural restriction in that storey (plant floor, refuge floor, car park).');
   tableEditor(c2,S.levels,[
-    {key:'name',label:'樓層',onBlur:re},{key:'use',label:'用途'},{key:'h',label:'層高 m',type:'num'},{key:'head',label:'淨空 m',type:'num'},{key:'svc',label:'機電層 m',type:'num'},{key:'free',label:'可放桁架／斜撐',type:'check'}
+    {key:'name',label:'Floor',onBlur:re},{key:'use',label:'Use'},{key:'h',label:'F-to-F (m)',type:'num'},{key:'head',label:'Headroom (m)',type:'num'},{key:'svc',label:'Services (m)',type:'num'},{key:'free',label:'Truss / bracing allowed',type:'check'}
   ],re);
 
-  const c1=card(h,'軸網（可以多套）','第一套係「主軸網」。上下層柱位唔同（例如塔樓同平台）就加一套軸網，填佢適用嘅樓層範圍同原點位置（相對主軸網第一條軸線，單位 m）。「有柱」唔剔 = 只作定位用（例如只有牆嘅塔樓）。軸網範圍亦會當作該等樓層嘅建築範圍。');
+  const c1=card(h,'Grids (more than one allowed)','The first grid is the "main grid". If upper and lower floors have different column positions (e.g. tower and podium), add another grid with its floor range and origin (relative to the first line of the main grid, in m). Untick "Columns" for a setting-out grid only (e.g. a wall-only tower). The grid extent is also taken as the building extent on those floors.');
   tableEditor(c1,S.grids,[
-    {key:'name',label:'名稱',onBlur:re},{key:'xLabels',label:'X 軸線（東西）',type:'wide'},{key:'xSp',label:'X 軸距 m',type:'wide'},{key:'yLabels',label:'Y 軸線（由上至下）',type:'wide'},{key:'ySp',label:'Y 軸距 m',type:'wide'},
-    {key:'ox',label:'原點 X',type:'num'},{key:'oy',label:'原點 Y',type:'num'},{key:'s1',label:'由層',type:'select',options:storeyOpts(true)},{key:'s2',label:'至層',type:'select',options:storeyOpts(true)},{key:'cols',label:'有柱',type:'check',def:true}
+    {key:'name',label:'Name',onBlur:re},{key:'xLabels',label:'X grid lines (W–E)',type:'wide'},{key:'xSp',label:'X spacings (m)',type:'wide'},{key:'yLabels',label:'Y grid lines (top to bottom)',type:'wide'},{key:'ySp',label:'Y spacings (m)',type:'wide'},
+    {key:'ox',label:'Origin X',type:'num'},{key:'oy',label:'Origin Y',type:'num'},{key:'s1',label:'From floor',type:'select',options:storeyOpts(true)},{key:'s2',label:'To floor',type:'select',options:storeyOpts(true)},{key:'cols',label:'Columns',type:'check',def:true}
   ],re);
 
-  const c3=card(h,'限制區','位置寫法：「3」= 主軸網軸3；「3+5」= 軸3再加 5m；「T:T2」= 軸網 T 嘅 T2；「@12.5」= 絕對座標 12.5m。樓層範圍係「層」（1/F 至 4/F = 由 1/F 樓面至 5/F 樓底）。中庭／挑高大堂可填淨空同機電層。');
+  const c3=card(h,'Zones (constraints)','Position syntax: "3" = main grid line 3; "3+5" = 5 m beyond line 3; "T:T2" = line T2 of grid T; "@12.5" = absolute coordinate 12.5 m. Floor range refers to storeys (1/F to 4/F = from 1/F slab up to the underside of 5/F). Atrium / double-height lobby may have their own headroom and services zone.');
   tableEditor(c3,S.zones,[
-    {key:'type',label:'類型',type:'select',options:ZONE_TYPES},{key:'name',label:'名稱'},
-    {key:'x1',label:'X 由',type:'num'},{key:'x2',label:'X 至',type:'num'},{key:'y1',label:'Y 由',type:'num'},{key:'y2',label:'Y 至',type:'num'},
-    {key:'s1',label:'由層',type:'select',options:storeyOpts(false)},{key:'s2',label:'至層',type:'select',options:storeyOpts(false)},
-    {key:'head',label:'淨空 m',type:'num'},{key:'svc',label:'機電 m',type:'num'}
+    {key:'type',label:'Type',type:'select',options:ZONE_TYPES},{key:'name',label:'Name'},
+    {key:'x1',label:'X from',type:'num'},{key:'x2',label:'X to',type:'num'},{key:'y1',label:'Y from',type:'num'},{key:'y2',label:'Y to',type:'num'},
+    {key:'s1',label:'From floor',type:'select',options:storeyOpts(false)},{key:'s2',label:'To floor',type:'select',options:storeyOpts(false)},
+    {key:'head',label:'Headroom (m)',type:'num'},{key:'svc',label:'Services (m)',type:'num'}
   ],re);
 
-  const c4=card(h,'牆（可重複排列）','由 (X1,Y1) 至 (X2,Y2) 一幅牆；「數量」同「每幅偏移 dx／dy」可以一次過輸入一排客房牆。例：X1=T:T1 Y1=T:a X2=T:T1 Y2=T:b，數量 11，dx=5 → 11 幅相隔 5m 嘅牆。');
+  const c4=card(h,'Walls (can be repeated)','One wall from (X1,Y1) to (X2,Y2); "Count" and "offset dx / dy" create a whole row of room walls at once. Example: X1=T:T1 Y1=T:a X2=T:T1 Y2=T:b, count 11, dx=5 → 11 walls at 5 m centres.');
   tableEditor(c4,S.walls,[
-    {key:'name',label:'名稱'},{key:'x1',label:'X1',type:'num'},{key:'y1',label:'Y1',type:'num'},{key:'x2',label:'X2',type:'num'},{key:'y2',label:'Y2',type:'num'},
-    {key:'s1',label:'由層',type:'select',options:storeyOpts(false)},{key:'s2',label:'至層',type:'select',options:storeyOpts(false)},{key:'n',label:'數量',type:'num',def:1},{key:'dx',label:'dx m',type:'num',def:0},{key:'dy',label:'dy m',type:'num',def:0}
+    {key:'name',label:'Name'},{key:'x1',label:'X1',type:'num'},{key:'y1',label:'Y1',type:'num'},{key:'x2',label:'X2',type:'num'},{key:'y2',label:'Y2',type:'num'},
+    {key:'s1',label:'From floor',type:'select',options:storeyOpts(false)},{key:'s2',label:'To floor',type:'select',options:storeyOpts(false)},{key:'n',label:'Count',type:'num',def:1},{key:'dx',label:'dx (m)',type:'num',def:0},{key:'dy',label:'dy (m)',type:'num',def:0}
   ],re);
 
-  const c5=card(h,'額外柱（唔喺軸網上）','不規則柱位逐支輸入。');
+  const c5=card(h,'Extra columns (off-grid)','Enter irregular column positions one by one.');
   tableEditor(c5,S.columns,[
-    {key:'name',label:'名稱'},{key:'x',label:'X',type:'num'},{key:'y',label:'Y',type:'num'},{key:'s1',label:'由層',type:'select',options:storeyOpts(true)},{key:'s2',label:'至層',type:'select',options:storeyOpts(true)}
+    {key:'name',label:'Name'},{key:'x',label:'X',type:'num'},{key:'y',label:'Y',type:'num'},{key:'s1',label:'From floor',type:'select',options:storeyOpts(true)},{key:'s2',label:'To floor',type:'select',options:storeyOpts(true)}
   ],re);
 
-  const c5b=card(h,'取消柱（人手）','喺軸網上某啲位置唔要柱。繪圖「取消柱」工具會自動加入呢度；下層柱取消後上層柱會自動取消（除非關閉「規則」入面嘅自動取消）。');
+  const c5b=card(h,'Removed columns (manual)','Grid positions where no column is wanted. The drawing tool "Remove / restore column" adds rows here. Columns above a removed column are removed automatically (unless auto-removal is switched off under "Rules").');
   tableEditor(c5b,S.removed,[
-    {key:'x',label:'X',type:'num'},{key:'y',label:'Y',type:'num'},{key:'s1',label:'由層',type:'select',options:storeyOpts(true)},{key:'s2',label:'至層',type:'select',options:storeyOpts(true)}
+    {key:'x',label:'X',type:'num'},{key:'y',label:'Y',type:'num'},{key:'s1',label:'From floor',type:'select',options:storeyOpts(true)},{key:'s2',label:'To floor',type:'select',options:storeyOpts(true)}
   ],re);
 
-  const c6=card(h,'特殊構件（非軸網問題）','唔係由軸網推算出嘅難點，例如大跨度屋頂、懸臂雨篷。「層高桁架高度」= 可用嚟做桁架嘅高度（0 = 不可）。橋、天橋、看台屋面請用「④ 跨度題」。');
+  const c6=card(h,'Special members (non-grid problems)','Difficult members not derived from the grid, e.g. a long-span roof or a cantilever canopy. "Storey-deep truss height" = height available for a truss (0 = not possible). For bridges, footbridges and stand roofs use tab ④.');
   tableEditor(c6,S.specials,[
-    {key:'name',label:'名稱'},{key:'level',label:'位置／樓層'},{key:'span',label:'跨度 m',type:'num'},{key:'avail',label:'可用深度 m',type:'num'},
-    {key:'carries',label:'承托上層柱',type:'check'},{key:'cant',label:'懸臂',type:'check'},{key:'trussH',label:'層高桁架高度 m',type:'num'}
+    {key:'name',label:'Name'},{key:'level',label:'Location / floor'},{key:'span',label:'Span (m)',type:'num'},{key:'avail',label:'Available depth (m)',type:'num'},
+    {key:'carries',label:'Carries columns above',type:'check'},{key:'cant',label:'Cantilever',type:'check'},{key:'trussH',label:'Storey-deep truss height (m)',type:'num'}
   ],re);
 
-  const c7=card(h,'地盤及地質');
+  const c7=card(h,'Site and ground conditions');
   const r7=document.createElement('div'); r7.className='row';
-  r7.append(field('參考樓層',S.site,'refLevel',{type:'select',options:()=>S.levels.map(l=>[l.name,l.name])}),field('參考樓層標高 mPD（＝地面）',S.site,'refMpd',{w:'90px'}),
-    field('設計地下水位 mPD',S.site,'gwl',{w:'90px'}),field('岩面 mPD',S.site,'rock',{w:'90px'}),field('筏基／底板厚 m',S.site,'raftT',{w:'90px'}),field('緊貼鄰樓（淺基礎）',S.site,'adjacent',{type:'check'}));
+  r7.append(field('Reference floor',S.site,'refLevel',{type:'select',options:()=>S.levels.map(l=>[l.name,l.name])}),field('Reference floor level mPD (= ground)',S.site,'refMpd',{w:'90px'}),
+    field('Design groundwater level mPD',S.site,'gwl',{w:'90px'}),field('Rockhead mPD',S.site,'rock',{w:'90px'}),field('Raft / base slab thickness (m)',S.site,'raftT',{w:'90px'}),field('Adjoining buildings (shallow footings)',S.site,'adjacent',{type:'check'}));
   c7.appendChild(r7);
-  const sl=document.createElement('div'); sl.style.marginTop='8px'; sl.innerHTML='<div class="hint">土層（mPD，由上至下）</div>'; c7.appendChild(sl);
-  tableEditor(sl,S.site.soils,[{key:'top',label:'頂 mPD',type:'num'},{key:'bot',label:'底 mPD',type:'num'},{key:'desc',label:'描述'},{key:'N',label:'SPT N'}],re);
+  const sl=document.createElement('div'); sl.style.marginTop='8px'; sl.innerHTML='<div class="hint">Soil strata (mPD, top to bottom)</div>'; c7.appendChild(sl);
+  tableEditor(sl,S.site.soils,[{key:'top',label:'Top mPD',type:'num'},{key:'bot',label:'Bottom mPD',type:'num'},{key:'desc',label:'Description'},{key:'N',label:'SPT N'}],re);
 
-  const c8=card(h,'規則');
+  const c8=card(h,'Rules');
   const r8=document.createElement('div'); r8.className='row';
-  r8.append(field('最小柱距 m',S.rules,'minSpacing',{w:'80px'}),field('使用範圍不准結構牆',S.rules,'wallsBanned',{type:'check'}),field('下層柱被取消時上層柱自動取消（唔轉換）',S.rules,'autoStop',{type:'check'}));
+  r8.append(field('Minimum column spacing (m)',S.rules,'minSpacing',{w:'80px'}),field('No structural walls in occupied areas',S.rules,'wallsBanned',{type:'check'}),field('Remove columns above a removed column automatically (no transfer)',S.rules,'autoStop',{type:'check'}));
   c8.appendChild(r8);
 
-  const c9=card(h,'經驗參數（初步估算用，可自行修改）','數值屬初步方案經驗值，正式尺寸以你嘅計算為準。');
+  const c9=card(h,'Rule-of-thumb parameters (for preliminary sizing, editable)','Preliminary scheme values only; final sizes come from your own calculations.');
   const r9=document.createElement('div'); r9.className='row';
   Object.keys(DEFAULT_PARAMS).forEach(k=>r9.appendChild(field(PARAM_LABELS[k],S.params,k,{w:'70px',numeric:true,dflt:DEFAULT_PARAMS[k]})));
   c9.appendChild(r9);
-  const rp=document.createElement('button'); rp.textContent='還原預設參數'; rp.style.marginTop='8px'; rp.onclick=()=>{S.params={...DEFAULT_PARAMS};renderInput();changed();}; c9.appendChild(rp);
+  const rp=document.createElement('button'); rp.textContent='Restore default parameters'; rp.style.marginTop='8px'; rp.onclick=()=>{S.params={...DEFAULT_PARAMS};renderInput();changed();}; c9.appendChild(rp);
 }
 
-
-/* ---------- 平面繪圖 ---------- */
+/* ---------- Plan drawing editor ---------- */
 const DRAW={s:null,tool:'select',ztype:'colfree',r1:'',r2:'',sel:null};
-const DRAW_TOOLS=[['select','選取／拖曳'],['zone','畫限制區'],['wall','畫牆'],['col','加柱'],['delcol','取消／恢復柱']];
-function commitDraw(msg){ persist(); try{ M=buildModel(S); }catch(e){ M={err:['計算出錯：'+e.message]}; } renderInput(); flash(msg||'已更新'); }
+const DRAW_TOOLS=[['select','Select / drag'],['zone','Draw zone'],['wall','Draw wall'],['col','Add column'],['delcol','Remove / restore column']];
+function commitDraw(msg){ persist(); try{ M=buildModel(S); }catch(e){ M={err:['Calculation error: '+e.message]}; } renderInput(); flash(msg||'Updated'); }
 function renderDraw(){
   const host=document.getElementById('drawHost'); if(!host) return;
   host.innerHTML='';
-  const c=card(host,'平面繪圖（直接喺圖上畫）','揀層數同工具。<b>選取／拖曳</b>：拖區域、牆、額外柱；拖<b>軸線編號圓圈</b>改軸距（即係移動建築邊界）。<b>畫限制區</b>：揀類型後喺圖上拖一個長方形。<b>畫牆</b>：由起點拖到終點。<b>加柱／取消柱</b>：撳一下。新畫嘅嘢套用下面「由層／至層」，之後可以喺表格再改。位置會自動吸附軸線，否則以 0.5m 為單位。');
-  if (!M||(M.err&&M.err.length)||!M.cells){ c.insertAdjacentHTML('beforeend','<div class="err">輸入有錯誤，修正後先可以用繪圖（見下面表格或分析頁）。</div>'); return; }
+  const c=card(host,'Plan drawing (draw directly on the plan)','Choose a floor and a tool. <b>Select / drag</b>: drag zones, walls and extra columns; drag a <b>grid-line bubble</b> to change the spacing (i.e. move the building edge). <b>Draw zone</b>: choose the type, then drag a rectangle. <b>Draw wall</b>: drag from start to end. <b>Add / remove column</b>: click. New items use the "From / To floor" below and can be edited later in the tables. Positions snap to grid lines, otherwise to 0.5 m.');
+  if (!M||(M.err&&M.err.length)||!M.cells){ c.insertAdjacentHTML('beforeend','<div class="err">There are input errors; fix them before drawing (see the tables below or the analysis tab).</div>'); return; }
   const nS=M.nL-1; if(DRAW.s===null||DRAW.s>=nS) DRAW.s=Math.min(Math.max(M.ri||0,0),nS-1);
   const sn=M.L[DRAW.s].name;
   const names=M.L.slice(0,nS).map(l=>l.name);
   if(!names.includes(DRAW.r1)) DRAW.r1=sn; if(!names.includes(DRAW.r2)) DRAW.r2=sn;
   const opt=(arr,cur)=>arr.map(([v,t])=>`<option value="${esc(v)}" ${v===cur?'selected':''}>${esc(t)}</option>`).join('');
   const bar=document.createElement('div'); bar.className='row'; bar.style.marginBottom='6px';
-  bar.innerHTML=`<label>顯示層 <select id="dwS">${opt(names.map((n,i)=>[String(i),n+'（樓面至上一層）']),String(DRAW.s))}</select></label>
-    <label>工具 <select id="dwT">${opt(DRAW_TOOLS,DRAW.tool)}</select></label>
-    <label ${DRAW.tool==='zone'?'':'hidden'}>限制區類型 <select id="dwZ">${opt(ZONE_TYPES,DRAW.ztype)}</select></label>
-    <label>新物件 由層 <select id="dwR1">${opt(names.map(n=>[n,n]),DRAW.r1)}</select></label>
-    <label>至層 <select id="dwR2">${opt(names.map(n=>[n,n]),DRAW.r2)}</select></label>
-    <button id="dwDel" ${DRAW.sel?'':'disabled'}>刪除所選</button><span class="hint" id="dwInfo">${DRAW.sel?esc(DRAW.sel.label):''}</span>`;
+  bar.innerHTML=`<label>Show storey <select id="dwS">${opt(names.map((n,i)=>[String(i),n+' (floor to next floor)']),String(DRAW.s))}</select></label>
+    <label>Tool <select id="dwT">${opt(DRAW_TOOLS,DRAW.tool)}</select></label>
+    <label ${DRAW.tool==='zone'?'':'hidden'}>Zone type <select id="dwZ">${opt(ZONE_TYPES,DRAW.ztype)}</select></label>
+    <label>New items: from floor <select id="dwR1">${opt(names.map(n=>[n,n]),DRAW.r1)}</select></label>
+    <label>to floor <select id="dwR2">${opt(names.map(n=>[n,n]),DRAW.r2)}</select></label>
+    <button id="dwDel" ${DRAW.sel?'':'disabled'}>Delete selected</button><span class="hint" id="dwInfo">${DRAW.sel?esc(DRAW.sel.label):''}</span>`;
   c.appendChild(bar);
   const area=document.createElement('div'); c.appendChild(area);
   area.innerHTML=planSVG(M,DRAW.s+1,null)+legend(false);
@@ -1097,7 +1096,7 @@ function renderDraw(){
   bar.querySelector('#dwZ').onchange=e=>{ DRAW.ztype=e.target.value; };
   bar.querySelector('#dwR1').onchange=e=>{ DRAW.r1=e.target.value; };
   bar.querySelector('#dwR2').onchange=e=>{ DRAW.r2=e.target.value; };
-  bar.querySelector('#dwDel').onclick=()=>{ const sl=DRAW.sel; if(!sl) return; ({zone:S.zones,wall:S.walls,col:S.columns}[sl.kind]).splice(sl.src,1); DRAW.sel=null; commitDraw('已刪除'); };
+  bar.querySelector('#dwDel').onclick=()=>{ const sl=DRAW.sel; if(!sl) return; ({zone:S.zones,wall:S.walls,col:S.columns}[sl.kind]).splice(sl.src,1); DRAW.sel=null; commitDraw('Deleted'); };
   attachDraw(area.querySelector('svg'));
 }
 function attachDraw(svg){
@@ -1112,28 +1111,28 @@ function attachDraw(svg){
   const r1=DRAW.r1, r2=DRAW.r2;
   let drag=null, prev=null;
   const showPrev=shape=>{ if(prev) prev.remove(); prev=shape; if(prev) ov.appendChild(prev); };
-  const select=(kind,src,label)=>{ DRAW.sel={kind,src,label}; const d=document.getElementById('dwDel'); if(d) d.disabled=false; const i=document.getElementById('dwInfo'); if(i) i.textContent='已選：'+label; };
+  const select=(kind,src,label)=>{ DRAW.sel={kind,src,label}; const d=document.getElementById('dwDel'); if(d) d.disabled=false; const i=document.getElementById('dwInfo'); if(i) i.textContent='Selected: '+label; };
   const start=(ev,d)=>{ ev.stopPropagation(); ev.preventDefault(); const [wx,wy]=toW(ev); drag={...d,sx:wx,sy:wy,dx:0,dy:0}; svg.setPointerCapture(ev.pointerId); };
   if (DRAW.tool==='select'){
     M.zones.filter(z=>M.zAct(z,sIdx)).forEach(z=>{
       const r=el('rect',{x:G.X(z.x1),y:G.Y(z.y1),width:(z.x2-z.x1)*G.s,height:(z.y2-z.y1)*G.s,fill:'transparent',stroke:'var(--acc)','stroke-width':1.5,'stroke-dasharray':'2 3',style:'cursor:move'});
-      r.addEventListener('pointerdown',ev=>{ select('zone',z.src,`限制區「${z.name}」`); start(ev,{mode:'zmove',z}); }); ov.appendChild(r);
+      r.addEventListener('pointerdown',ev=>{ select('zone',z.src,`zone "${z.name}"`); start(ev,{mode:'zmove',z}); }); ov.appendChild(r);
       [[z.x1,z.y1,'x1','y1'],[z.x2,z.y1,'x2','y1'],[z.x1,z.y2,'x1','y2'],[z.x2,z.y2,'x2','y2']].forEach(([x,y,kx,ky])=>{
         const hdl=el('rect',{x:G.X(x)-5,y:G.Y(y)-5,width:10,height:10,fill:'var(--card)',stroke:'var(--acc)','stroke-width':2,style:'cursor:nwse-resize'});
-        hdl.addEventListener('pointerdown',ev=>{ select('zone',z.src,`限制區「${z.name}」`); start(ev,{mode:'zcorner',z,kx,ky}); }); ov.appendChild(hdl);
+        hdl.addEventListener('pointerdown',ev=>{ select('zone',z.src,`zone "${z.name}"`); start(ev,{mode:'zcorner',z,kx,ky}); }); ov.appendChild(hdl);
       });
     });
     M.walls.filter(w=>w.s1<=sIdx&&sIdx<=w.s2).forEach(w=>{
       const hit=el('line',{x1:G.X(w.x1),y1:G.Y(w.y1),x2:G.X(w.x2),y2:G.Y(w.y2),stroke:'transparent','stroke-width':12,style:'cursor:move'});
-      hit.addEventListener('pointerdown',ev=>{ select('wall',w.src,`牆「${S.walls[w.src].name||'牆'}」${w.rowN>1?'（成排 '+w.rowN+' 幅）':''}`); start(ev,{mode:'wmove',w}); }); ov.appendChild(hit);
+      hit.addEventListener('pointerdown',ev=>{ select('wall',w.src,`wall "${S.walls[w.src].name||'wall'}"${w.rowN>1?' (row of '+w.rowN+')':''}`); start(ev,{mode:'wmove',w}); }); ov.appendChild(hit);
       if (w.rowN===1) [['1',w.x1,w.y1],['2',w.x2,w.y2]].forEach(([e,x,y])=>{
         const c=el('circle',{cx:G.X(x),cy:G.Y(y),r:5,fill:'var(--card)',stroke:'var(--wallup)','stroke-width':2,style:'cursor:crosshair'});
-        c.addEventListener('pointerdown',ev=>{ select('wall',w.src,`牆「${S.walls[w.src].name||'牆'}」`); start(ev,{mode:'wend',w,e}); }); ov.appendChild(c);
+        c.addEventListener('pointerdown',ev=>{ select('wall',w.src,`wall "${S.walls[w.src].name||'wall'}"`); start(ev,{mode:'wend',w,e}); }); ov.appendChild(c);
       });
     });
     M.extraCols.filter(c=>c.s1<=sIdx&&sIdx<=c.s2).forEach(cl=>{
       const c=el('circle',{cx:G.X(cl.x),cy:G.Y(cl.y),r:8,fill:'transparent',stroke:'var(--m2)','stroke-width':2,style:'cursor:move'});
-      c.addEventListener('pointerdown',ev=>{ select('col',cl.src,`額外柱「${S.columns[cl.src].name||''}」`); start(ev,{mode:'cmove',cl}); }); ov.appendChild(c);
+      c.addEventListener('pointerdown',ev=>{ select('col',cl.src,`extra column "${S.columns[cl.src].name||''}"`); start(ev,{mode:'cmove',cl}); }); ov.appendChild(c);
     });
     M.grids.forEach((g,gi)=>{
       if (!(g.s1<=sIdx&&sIdx<=g.s2)) return; const off=gi===0?0:14;
@@ -1147,18 +1146,18 @@ function attachDraw(svg){
     if (ev.button>0) return;
     const [wx,wy]=toW(ev);
     if (DRAW.tool==='zone'||DRAW.tool==='wall'){ const x=snap(wx,'x'),y=snap(wy,'y'); ev.preventDefault(); drag={mode:DRAW.tool,ax:x,ay:y,bx:x,by:y}; svg.setPointerCapture(ev.pointerId); return; }
-    if (DRAW.tool==='col'){ const x=snap(wx,'x'),y=snap(wy,'y'); S.columns.push({name:'C'+(S.columns.length+1),x:L(x,'x'),y:L(y,'y'),s1:r1,s2:r2}); commitDraw('已加柱'); return; }
+    if (DRAW.tool==='col'){ const x=snap(wx,'x'),y=snap(wy,'y'); S.columns.push({name:'C'+(S.columns.length+1),x:L(x,'x'),y:L(y,'y'),s1:r1,s2:r2}); commitDraw('Column added'); return; }
     if (DRAW.tool==='delcol'){
       const tol=12/G.s; let best=null;
       M.pts.forEach(p=>{ const st=M.col[sIdx][p.id]; if(st==='none'||st==='core') return; const d=Math.hypot(p.x-wx,p.y-wy); if(d<=tol&&(!best||d<best.d)) best={p,d,st}; });
-      if (!best){ flash('附近冇柱'); return; }
+      if (!best){ flash('No column nearby'); return; }
       const p=best.p;
       const ex=M.extraCols.find(c=>Math.abs(c.x-p.x)<TOL&&Math.abs(c.y-p.y)<TOL&&c.s1<=sIdx&&sIdx<=c.s2);
       const rm=M.removed.find(r=>Math.abs(r.x-p.x)<TOL&&Math.abs(r.y-p.y)<TOL&&r.s1<=sIdx&&sIdx<=r.s2);
-      if (rm){ S.removed.splice(rm.src,1); commitDraw(`已恢復柱 ${p.label}`); }
-      else if (ex){ S.columns.splice(ex.src,1); commitDraw(`已刪除額外柱 ${p.label}`); }
-      else if (best.st==='col'||best.st==='edge'){ S.removed.push({x:L(p.x,'x'),y:L(p.y,'y'),s1:r1,s2:r2}); commitDraw(`已取消柱 ${p.label}（${r1}–${r2}）`); }
-      else flash(`柱 ${p.label} 係因為中庭／無柱區／下層冇柱而取消，要改限制區先可以恢復`);
+      if (rm){ S.removed.splice(rm.src,1); commitDraw(`Column ${p.label} restored`); }
+      else if (ex){ S.columns.splice(ex.src,1); commitDraw(`Extra column ${p.label} deleted`); }
+      else if (best.st==='col'||best.st==='edge'){ S.removed.push({x:L(p.x,'x'),y:L(p.y,'y'),s1:r1,s2:r2}); commitDraw(`Column ${p.label} removed (${r1}–${r2})`); }
+      else flash(`Column ${p.label} is omitted because of an atrium / column-free zone / missing column below; change the zone to restore it`);
     }
   });
   svg.addEventListener('pointermove',ev=>{
@@ -1190,38 +1189,38 @@ function attachDraw(svg){
       const v=Math.round((drag.p+(drag.ax==='x'?drag.dx:drag.dy))*2)/2; drag.res=v;
       const g=M.grids[drag.gi];
       showPrev(drag.ax==='x'?el('line',{x1:G.X(v),y1:G.Y(g.gy.pos[0])-10,x2:G.X(v),y2:G.Y(g.gy.pos.at(-1))+10,stroke:'var(--acc)','stroke-width':2}):el('line',{x1:G.X(g.gx.pos[0])-10,y1:G.Y(v),x2:G.X(g.gx.pos.at(-1))+10,y2:G.Y(v),stroke:'var(--acc)','stroke-width':2}));
-      const i=document.getElementById('dwInfo'); if(i) i.textContent=`軸線 ${drag.ax==='x'?g.gx.labels[drag.i]:g.gy.labels[drag.i]} → ${v} m`;
+      const i=document.getElementById('dwInfo'); if(i) i.textContent=`Grid line ${drag.ax==='x'?g.gx.labels[drag.i]:g.gy.labels[drag.i]} → ${v} m`;
     }
   });
-  const end=ev=>{
+  const end=()=>{
     if (!drag) return; const d=drag; drag=null; showPrev(null);
     if (d.mode==='zone'){ const x1=Math.min(d.ax,d.bx),x2=Math.max(d.ax,d.bx),y1=Math.min(d.ay,d.by),y2=Math.max(d.ay,d.by);
       if (x2-x1<0.5||y2-y1<0.5) return;
-      S.zones.push({type:DRAW.ztype,name:ZONE_ZH[DRAW.ztype].split('（')[0],x1:L(x1,'x'),x2:L(x2,'x'),y1:L(y1,'y'),y2:L(y2,'y'),s1:r1,s2:r2,head:'',svc:''}); commitDraw('已加限制區'); return; }
+      S.zones.push({type:DRAW.ztype,name:ZONE_NAME[DRAW.ztype].split(' (')[0],x1:L(x1,'x'),x2:L(x2,'x'),y1:L(y1,'y'),y2:L(y2,'y'),s1:r1,s2:r2,head:'',svc:''}); commitDraw('Zone added'); return; }
     if (d.mode==='wall'){ if(Math.hypot(d.bx-d.ax,d.by-d.ay)<0.5) return;
-      S.walls.push({name:'W'+(S.walls.length+1),x1:L(d.ax,'x'),y1:L(d.ay,'y'),x2:L(d.bx,'x'),y2:L(d.by,'y'),s1:r1,s2:r2,n:1,dx:0,dy:0}); commitDraw('已加牆'); return; }
+      S.walls.push({name:'W'+(S.walls.length+1),x1:L(d.ax,'x'),y1:L(d.ay,'y'),x2:L(d.bx,'x'),y2:L(d.by,'y'),s1:r1,s2:r2,n:1,dx:0,dy:0}); commitDraw('Wall added'); return; }
     if (d.res===undefined) return;
-    if (d.mode==='zmove'||d.mode==='zcorner'){ const r=d.res; if(r.x2-r.x1<0.5||r.y2-r.y1<0.5) return; Object.assign(S.zones[d.z.src],{x1:L(r.x1,'x'),x2:L(r.x2,'x'),y1:L(r.y1,'y'),y2:L(r.y2,'y')}); commitDraw('已移動限制區'); }
+    if (d.mode==='zmove'||d.mode==='zcorner'){ const r=d.res; if(r.x2-r.x1<0.5||r.y2-r.y1<0.5) return; Object.assign(S.zones[d.z.src],{x1:L(r.x1,'x'),x2:L(r.x2,'x'),y1:L(r.y1,'y'),y2:L(r.y2,'y')}); commitDraw('Zone moved'); }
     else if (d.mode==='wmove'||d.mode==='wend'){
       const row=S.walls[d.w.src], r=d.res;
       if (d.mode==='wmove'){ const base=M.walls.find(w=>w.src===d.w.src&&w.inst===0); const ox=r.x1-d.w.x1, oy=r.y1-d.w.y1;
         Object.assign(row,{x1:L(base.x1+ox,'x'),y1:L(base.y1+oy,'y'),x2:L(base.x2+ox,'x'),y2:L(base.y2+oy,'y')}); }
       else Object.assign(row,{x1:L(r.x1,'x'),y1:L(r.y1,'y'),x2:L(r.x2,'x'),y2:L(r.y2,'y')});
-      commitDraw('已移動牆');
+      commitDraw('Wall moved');
     }
-    else if (d.mode==='cmove'){ Object.assign(S.columns[d.cl.src],{x:L(d.res.x,'x'),y:L(d.res.y,'y')}); commitDraw('已移動柱'); }
+    else if (d.mode==='cmove'){ Object.assign(S.columns[d.cl.src],{x:L(d.res.x,'x'),y:L(d.res.y,'y')}); commitDraw('Column moved'); }
     else if (d.mode==='grid'){
       const g=S.grids[d.gi], mg=M.grids[d.gi], pos=d.ax==='x'?mg.gx.pos:mg.gy.pos, spKey=d.ax==='x'?'xSp':'ySp', oKey=d.ax==='x'?'ox':'oy';
       const sp=String(g[spKey]).split(/[,，\s]+/).filter(Boolean).map(Number), v=d.res, i=d.i;
-      if (i===0){ const dd=v-pos[0]; if(sp.length&&sp[0]-dd<0.5){flash('軸距太細');return;} if(sp.length) sp[0]=+(sp[0]-dd).toFixed(3); g[oKey]=+((num(g[oKey])||0)+dd).toFixed(3); }
-      else { const left=v-pos[i-1]; if(left<0.5){flash('軸距太細');return;} sp[i-1]=+left.toFixed(3); if(i<pos.length-1){ const right=pos[i+1]-v; if(right<0.5){flash('軸距太細');return;} sp[i]=+right.toFixed(3); } }
-      g[spKey]=sp.join(','); commitDraw('已改軸距');
+      if (i===0){ const dd=v-pos[0]; if(sp.length&&sp[0]-dd<0.5){flash('Spacing too small');return;} if(sp.length) sp[0]=+(sp[0]-dd).toFixed(3); g[oKey]=+((num(g[oKey])||0)+dd).toFixed(3); }
+      else { const left=v-pos[i-1]; if(left<0.5){flash('Spacing too small');return;} sp[i-1]=+left.toFixed(3); if(i<pos.length-1){ const right=pos[i+1]-v; if(right<0.5){flash('Spacing too small');return;} sp[i]=+right.toFixed(3); } }
+      g[spKey]=sp.join(','); commitDraw('Grid spacing changed');
     }
   };
   svg.addEventListener('pointerup',end); svg.addEventListener('pointercancel',()=>{ drag=null; showPrev(null); });
 }
 
-/* ---------- 平面圖 ---------- */
+/* ---------- Plan view ---------- */
 const GRID_COLORS=['var(--mute)','#b26a00','#2e7d32','#8e24aa'];
 function geom(M){
   const x0=Math.min(...M.xs), x1=Math.max(...M.xs), y0=Math.min(...M.ys), y1=Math.max(...M.ys);
@@ -1252,7 +1251,7 @@ function planSVG(M,k,famEval){
     const li=M.levelInfo[k]; const xs=li.pts.map(t=>t.x), ys=li.pts.map(t=>t.y);
     li.members.forEach(m=>{xs.push(m.x1,m.x2);ys.push(m.y1,m.y2);});
     const a=Math.min(...xs)-1,b=Math.max(...xs)+1,c=Math.min(...ys)-1,d=Math.max(...ys)+1;
-    g+=`<rect x="${X(a)}" y="${Y(c)}" width="${(b-a)*s}" height="${(d-c)*s}" fill="var(--m1)" fill-opacity=".18" stroke="var(--m1)" stroke-width="2"/><text x="${X(a)+4}" y="${Y(d)-5}" style="font-weight:600;fill:var(--m1)">轉換板 厚約 ${f(li.plate.t)}m</text>`;
+    g+=`<rect x="${X(a)}" y="${Y(c)}" width="${(b-a)*s}" height="${(d-c)*s}" fill="var(--m1)" fill-opacity=".18" stroke="var(--m1)" stroke-width="2"/><text x="${X(a)+4}" y="${Y(d)-5}" style="font-weight:600;fill:var(--m1)">Transfer plate approx. ${f(li.plate.t)} m thick</text>`;
   }
   if (k-1>=0) M.wallsAt(k-1).forEach(w=>{ g+=`<line x1="${X(w.x1)}" y1="${Y(w.y1)}" x2="${X(w.x2)}" y2="${Y(w.y2)}" stroke="var(--wall)" stroke-width="5"/>`; });
   if (k<=nL-2) M.wallsAt(k).forEach(w=>{ g+=`<line x1="${X(w.x1)}" y1="${Y(w.y1)}" x2="${X(w.x2)}" y2="${Y(w.y2)}" stroke="var(--wallup)" stroke-width="2" stroke-dasharray="${k-1>=0&&M.wallsAt(k-1).includes(w)?'':'5 3'}"/>`; });
@@ -1264,7 +1263,7 @@ function planSVG(M,k,famEval){
     g+=`<line x1="${X(m.x1)}" y1="${Y(m.y1)}" x2="${X(m.x2)}" y2="${Y(m.y2)}" stroke="${color}" stroke-width="${many?3.5:6}" stroke-opacity=".8" stroke-linecap="round" ${m.secondary?'stroke-dasharray="7 4"':''}/>`;
     if (many) return;
     const mx=X(m.x1+(m.x2-m.x1)*0.28), my=Y(m.y1+(m.y2-m.y1)*0.28);
-    const t=famEval?(c?`${SYS_ZH[c.sys]}${['COVERED','NOTREQ','PLATE'].includes(c.sys)?'':(c.sys==='STRUSS'||c.sys==='RCWALL'||c.sys==='HANG'?' 高'+f(c.H,1):' 深'+f(c.req))}`:'不可行'):`${f(m.span,1)}m／可用${f(m.avail)}`;
+    const t=famEval?(c?`${SYS_SHORT[c.sys]}${['COVERED','NOTREQ','PLATE'].includes(c.sys)?'':(c.sys==='STRUSS'||c.sys==='RCWALL'||c.sys==='HANG'?' h='+f(c.H,1):' d='+f(c.req))}`:'Not feasible'):`${f(m.span,1)} m / avail. ${f(m.avail)}`;
     g+=`<text x="${mx+(m.dir==='Y'?8:0)}" y="${my+(m.dir==='X'?-8:0)}" text-anchor="${m.dir==='Y'?'start':'middle'}" style="font-weight:600;fill:${color}">${esc(t)}</text>`;
   });
   if (k-1>=0) for (const p of pts){
@@ -1285,17 +1284,17 @@ function planSVG(M,k,famEval){
 }
 function legend(fam){
   return `<div class="legend">
-  <span><i class="sw" style="background:var(--ink)"></i>下層柱</span><span><i class="sw" style="background:var(--warn)"></i>無柱區邊柱</span><span style="color:var(--bad)">✕ 取消嘅柱</span>
-  <span><svg width="12" height="12"><circle cx="6" cy="6" r="4" fill="none" stroke="var(--acc)" stroke-width="1.5"/></svg>上層柱</span>
-  <span><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--bad)" stroke-width="2"/></svg>需轉換（承托上層）</span>
-  <span><i class="sw" style="background:var(--wall)"></i>下層牆</span><span style="color:var(--wallup)">┅ 上層牆</span>
-  <span><i class="sw" style="background:var(--void)"></i>中庭</span><span><i class="sw" style="background:var(--dbl)"></i>挑高</span><span><i class="sw" style="background:var(--colfree)"></i>無柱區</span><span><i class="sw" style="background:var(--core)"></i>核心筒</span>
-  ${fam?'<span style="color:var(--m1)">━ 方案構件</span><span style="color:var(--m2)">→ 斜柱</span><span style="color:var(--bad)">━ 不可行</span>':'<span style="color:var(--warn)">━ 長跨</span><span style="color:var(--bad)">━ 轉換</span><span>┅ 二級轉換</span>'}
+  <span><i class="sw" style="background:var(--ink)"></i>Column below</span><span><i class="sw" style="background:var(--warn)"></i>Edge column of column-free zone</span><span style="color:var(--bad)">✕ Omitted column</span>
+  <span><svg width="12" height="12"><circle cx="6" cy="6" r="4" fill="none" stroke="var(--acc)" stroke-width="1.5"/></svg>Column above</span>
+  <span><svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--bad)" stroke-width="2"/></svg>Needs transfer (supports above)</span>
+  <span><i class="sw" style="background:var(--wall)"></i>Wall below</span><span style="color:var(--wallup)">┅ Wall above</span>
+  <span><i class="sw" style="background:var(--void)"></i>Atrium</span><span><i class="sw" style="background:var(--dbl)"></i>Double height</span><span><i class="sw" style="background:var(--colfree)"></i>Column-free</span><span><i class="sw" style="background:var(--core)"></i>Core</span>
+  ${fam?'<span style="color:var(--m1)">━ Scheme member</span><span style="color:var(--m2)">→ Inclined column</span><span style="color:var(--bad)">━ Not feasible</span>':'<span style="color:var(--warn)">━ Long span</span><span style="color:var(--bad)">━ Transfer</span><span>┅ Secondary transfer</span>'}
   </div>`;
 }
 function levelSelect(id,cur){
   const withM=new Set([...M.members.map(m=>m.k),...Object.keys(M.levelInfo).map(Number)]);
-  let o=''; for(let k=1;k<M.nL;k++) o+=`<option value="${k}" ${k===cur?'selected':''}>${esc(M.L[k].name)} 樓板${withM.has(k)?'　★':''}</option>`;
+  let o=''; for(let k=1;k<M.nL;k++) o+=`<option value="${k}" ${k===cur?'selected':''}>${esc(M.L[k].name)} slab${withM.has(k)?'  ★':''}</option>`;
   return `<select id="${id}">${o}</select>`;
 }
 let viewK=null, viewK2=null, schemeView=0;
@@ -1306,33 +1305,34 @@ function renderAnalysis(){
   const h=$('#tab-analysis');
   if (M.err.length){ h.innerHTML=errBox(); return; }
   if (viewK===null||viewK>=M.nL) viewK=defaultK();
-  const sev={high:['sev-high','重要'],mid:['sev-mid','注意'],info:['sev-info','資料']};
-  let html=`<div class="card"><h2>重點問題</h2><ul class="issues">${M.issues.slice(0,80).map(i=>`<li><span class="${sev[i.sev][0]}">［${sev[i.sev][1]}］</span>${esc(i.t)}</li>`).join('')||'<li>冇特別問題</li>'}${M.issues.length>80?`<li class="hint">…另有 ${M.issues.length-80} 項</li>`:''}</ul></div>`;
-  html+=`<div class="card"><h2>柱位圖</h2><div class="row" style="margin-bottom:6px"><label>顯示樓板 ${levelSelect('selK',viewK)}</label><span class="hint">實心方塊 = 承托呢塊樓板嘅柱；藍圈 = 樓板上面嘅柱；紅圈 = 需要轉換</span></div>${planSVG(M,viewK,null)}${legend(false)}</div>`;
-  html+=`<div class="card"><h2>每層可用結構深度</h2><div class="tblwrap"><table><thead><tr><th>樓板</th><th>下層</th><th>層高</th><th>淨空</th><th>機電</th><th>可用深度</th><th>標高 mPD</th><th>上層可放桁架</th></tr></thead><tbody>`;
-  for (let k=M.nL-1;k>=0;k--){ const d=M.depth[k];
-    html+=`<tr><td>${esc(M.L[k].name)}</td><td>${k?esc(M.L[k-1].name)+' '+esc(M.L[k-1].use):'—'}</td><td>${k?f(M.L[k-1].h,1):''}</td><td>${k?f(M.L[k-1].head,1):''}</td><td>${k?f(M.L[k-1].svc,1):''}</td><td><b>${d===null?'—':f(d)}</b></td><td>${M.elev?f(M.elev[k],2):'–'}</td><td>${k<=M.nL-2&&M.L[k].free?'✓':''}</td></tr>`; }
-  html+='</tbody></table></div><div class="hint">可用深度 = 下層層高 − 淨空 − 機電層。中庭／挑高大堂上蓋另計（見構件表）。</div></div>';
+  const P=M.S.params;
+  const sev={high:['sev-high','KEY'],mid:['sev-mid','NOTE'],info:['sev-info','INFO']};
+  let html=`<div class="card"><h2>Key issues</h2><ul class="issues">${M.issues.slice(0,80).map(i=>`<li><span class="${sev[i.sev][0]}">[${sev[i.sev][1]}]</span> ${esc(i.t)}</li>`).join('')||'<li>No particular issues</li>'}${M.issues.length>80?`<li class="hint">… ${M.issues.length-80} more</li>`:''}</ul></div>`;
+  html+=`<div class="card"><h2>Column layout</h2><div class="row" style="margin-bottom:6px"><label>Show slab ${levelSelect('selK',viewK)}</label><span class="hint">Solid square = column supporting this slab; blue circle = column above the slab; red ring = transfer required</span></div>${planSVG(M,viewK,null)}${legend(false)}</div>`;
+  html+=`<div class="card"><h2>Available structural depth and maximum span per floor</h2><div class="tblwrap"><table><thead><tr><th>Slab</th><th>Storey below</th><th>F-to-F</th><th>Headroom</th><th>Services</th><th>Available depth</th><th>Max span RC</th><th>Max span PT</th><th>Max span steel</th><th>Max transfer span RC</th><th>Level mPD</th><th>Truss allowed above</th></tr></thead><tbody>`;
+  for (let k=M.nL-1;k>=0;k--){ const d=M.depth[k]; const ms=r=>d===null||d<=0?'—':f(d*r,1)+' m';
+    html+=`<tr><td>${esc(M.L[k].name)}</td><td>${k?esc(M.L[k-1].name)+' '+esc(M.L[k-1].use):'—'}</td><td>${k?f(M.L[k-1].h,2):''}</td><td>${k?f(M.L[k-1].head,2):''}</td><td>${k?f(M.L[k-1].svc,2):''}</td><td><b>${d===null?'—':f(d)}</b></td><td>${ms(P.rc)}</td><td>${ms(P.pt)}</td><td>${ms(P.st)}</td><td>${ms(P.rcT)}</td><td>${M.elev?f(M.elev[k],2):'–'}</td><td>${k<=M.nL-2&&M.L[k].free?'✓':''}</td></tr>`; }
+  html+=`</tbody></table></div><div class="hint">Available depth = storey height below − headroom − services zone. Max span = available depth × span/depth ratio (RC ${P.rc}, PT ${P.pt}, steel ${P.st}, RC transfer ${P.rcT}). Atrium / double-height areas are calculated separately (see member table). Beams running along partitions (outside the headroom zone) may be deeper.</div></div>`;
   const lis=Object.values(M.levelInfo).filter(li=>li.pts.length);
   if (lis.length){
-    html+=`<div class="card"><h2>轉換點（下面冇直接承托）</h2><div class="tblwrap"><table><thead><tr><th>樓板</th><th>位置</th><th>類型</th><th>承托上層</th><th>轉換梁</th><th>斜柱（偏移／層高）</th><th>吊柱＋桁架</th></tr></thead><tbody>`;
+    html+=`<div class="card"><h2>Transfer points (not directly supported below)</h2><div class="tblwrap"><table><thead><tr><th>Slab</th><th>Position</th><th>Type</th><th>Supports above</th><th>Transfer beams</th><th>Inclined column (offset / storey ht)</th><th>Hanger + truss</th></tr></thead><tbody>`;
     let n=0;
     lis.forEach(li=>li.pts.forEach(t=>{ if(n++>=80) return;
-      const ms=t.ms.map(id=>M.members[id]).map(m=>`${m.dir}向 ${f(m.span,1)}m${m.cant?'懸臂':''}${m.secondary?'（二級）':''}`).join('、')||'<span class="bad">冇</span>';
-      html+=`<tr><td>${esc(M.L[li.k].name)}</td><td>${esc(t.label)}</td><td>${[...t.kinds].map(x=>({col:'柱',wall:'牆端',slab:'樓板'}[x])).join('、')}</td><td>${t.carries?'✓':''}</td><td>${ms}</td><td class="${t.incl?(t.incl.ok?'ok':'bad'):''}">${t.incl?`${f(t.incl.d,1)}/${f(t.incl.h,1)} = ${f(t.incl.ratio)} ${t.incl.ok?'✓':'✕'}`:'—'}</td><td class="${t.hang?(t.hang.ok?'ok':'bad'):''}">${t.hang?`${esc(M.L[t.hang.f].name)} ${t.hang.ok?'✓':'✕'}`:'—'}</td></tr>`; }));
-    html+=`</tbody></table></div>${n>80?`<div class="hint">只顯示頭 80 個（共 ${n} 個）</div>`:''}`;
-    lis.filter(li=>li.plate).forEach(li=>{ const p=li.plate; html+=`<div class="hint">${esc(M.L[li.k].name)} 轉換板：最大跨 ${f(p.maxSpan,1)}m → 厚約 ${f(p.t)}m；樓板可用 ${f(p.avail)}m${p.H?`，相鄰機房／避難層 ${f(p.H,1)}m`:''} → <b class="${p.ok?'ok':'bad'}">${p.ok?'可行':'不可行'}</b>${p.suggested?'（建議考慮）':''}</div>`; });
+      const ms=t.ms.map(id=>M.members[id]).map(m=>`${m.dir} ${f(m.span,1)} m${m.cant?' cantilever':''}${m.secondary?' (secondary)':''}`).join(', ')||'<span class="bad">none</span>';
+      html+=`<tr><td>${esc(M.L[li.k].name)}</td><td>${esc(t.label)}</td><td>${[...t.kinds].map(x=>({col:'column',wall:'wall end',slab:'slab'}[x])).join(', ')}</td><td>${t.carries?'✓':''}</td><td>${ms}</td><td class="${t.incl?(t.incl.ok?'ok':'bad'):''}">${t.incl?`${f(t.incl.d,1)}/${f(t.incl.h,1)} = ${f(t.incl.ratio)} ${t.incl.ok?'✓':'✕'}`:'—'}</td><td class="${t.hang?(t.hang.ok?'ok':'bad'):''}">${t.hang?`${esc(M.L[t.hang.f].name)} ${t.hang.ok?'✓':'✕'}`:'—'}</td></tr>`; }));
+    html+=`</tbody></table></div>${n>80?`<div class="hint">Showing the first 80 (of ${n})</div>`:''}`;
+    lis.filter(li=>li.plate).forEach(li=>{ const p=li.plate; html+=`<div class="hint">${esc(M.L[li.k].name)} transfer plate: max. span ${f(p.maxSpan,1)} m → approx. ${f(p.t)} m thick; slab depth available ${f(p.avail)} m${p.H?`, adjacent plant / refuge storey ${f(p.H,1)} m`:''} → <b class="${p.ok?'ok':'bad'}">${p.ok?'feasible':'not feasible'}</b>${p.suggested?' (worth considering)':''}</div>`; });
     html+='</div>';
   }
-  html+=`<div class="card"><h2>長跨／轉換構件：各結構類型所需深度</h2><div class="tblwrap"><table><thead><tr><th>位置</th><th>跨度</th><th>可用</th><th>承托</th>${['RC','PT','ST','TRUSS','STRUSS','RCWALL'].map(s=>`<th>${SYS_ZH[s]}</th>`).join('')}</tr></thead><tbody>`;
+  html+=`<div class="card"><h2>Long-span / transfer members: depth required by each system</h2><div class="tblwrap"><table><thead><tr><th>Location</th><th>Span</th><th>Available</th><th>Carries</th>${['RC','PT','ST','TRUSS','STRUSS','RCWALL'].map(s=>`<th>${SYS_SHORT[s]}</th>`).join('')}</tr></thead><tbody>`;
   M.members.slice(0,120).forEach(m=>{
-    html+=`<tr><td>${m.special?esc(m.name):`${esc(m.level)} 軸${esc(m.lineLabel)} ${esc(m.ends.join('–'))}`}${m.cant?'（懸臂）':''}${m.secondary?'（二級）':''}${m.stacked?'（疊加）':''}</td><td>${f(m.span,1)}</td><td>${f(m.avail)}</td><td>${m.carries?'✓':''}</td>`+
-      m.opts.map(o=>`<td class="${o.ok?'ok':'bad'}">${(o.sys==='STRUSS'||o.sys==='RCWALL')?(o.H?`需${f(o.req,1)}／有${f(o.H,1)}`:'—'):f(o.req)} ${o.ok?'✓':'✕'}</td>`).join('')+'</tr>';
+    html+=`<tr><td>${m.special?esc(m.name):`${esc(m.level)} grid ${esc(m.lineLabel)} ${esc(m.ends.join('–'))}`}${m.cant?' (cantilever)':''}${m.secondary?' (secondary)':''}${m.stacked?' (stacked)':''}</td><td>${f(m.span,1)}</td><td>${f(m.avail)}</td><td>${m.carries?'✓':''}</td>`+
+      m.opts.map(o=>`<td class="${o.ok?'ok':'bad'}">${(o.sys==='STRUSS'||o.sys==='RCWALL')?(o.H?`need ${f(o.req,1)} / have ${f(o.H,1)}`:'—'):f(o.req)} ${o.ok?'✓':'✕'}</td>`).join('')+'</tr>';
   });
-  if (!M.members.length) html+='<tr><td colspan="10">冇長跨或轉換構件</td></tr>';
-  html+=`</tbody></table></div>${M.members.length>120?`<div class="hint">只顯示頭 120 條（共 ${M.members.length} 條）</div>`:''}</div>`;
+  if (!M.members.length) html+='<tr><td colspan="10">No long-span or transfer members</td></tr>';
+  html+=`</tbody></table></div>${M.members.length>120?`<div class="hint">Showing the first 120 (of ${M.members.length})</div>`:''}</div>`;
   const up=M.uplift.rc;
-  if (up&&up.U>0) html+=`<div class="card"><h2>抗浮估算（RC，每層 ${M.S.params.dlRC} kPa）</h2><div class="hint">底板底 ${f(up.under,2)} mPD；浮力 ${f(up.U,0)} kPa</div><table><thead><tr><th>範圍</th><th>面積 m²</th><th>樓板數</th><th>恆載 kPa</th><th>安全系數</th></tr></thead><tbody>${up.groups.map(g=>`<tr><td>${esc(g.where)}</td><td>${f(g.area,0)}</td><td>${g.n}</td><td>${f(g.W,0)}</td><td class="${g.fos<M.S.params.fosUp?'bad':'ok'}">${f(g.fos)}</td></tr>`).join('')}</tbody></table></div>`;
+  if (up&&up.U>0) html+=`<div class="card"><h2>Uplift estimate (RC, ${P.dlRC} kPa per floor)</h2><div class="hint">Underside of base slab ${f(up.under,2)} mPD; water pressure ${f(up.U,0)} kPa</div><table><thead><tr><th>Area</th><th>Area m²</th><th>No. of slabs</th><th>Dead load kPa</th><th>FOS</th></tr></thead><tbody>${up.groups.map(g=>`<tr><td>${esc(g.where)}</td><td>${f(g.area,0)}</td><td>${g.n}</td><td>${f(g.W,0)}</td><td class="${g.fos<P.fosUp?'bad':'ok'}">${f(g.fos)}</td></tr>`).join('')}</tbody></table></div>`;
   h.innerHTML=html;
   $('#selK').onchange=e=>{viewK=+e.target.value;renderAnalysis();};
 }
@@ -1344,19 +1344,19 @@ function renderSchemes(){
   const e1=R.all.find(e=>e.key===a), e2=R.all.find(e=>e.key===b);
   const rec=recommend(M,e1,e2);
   if (viewK2===null||viewK2>=M.nL) viewK2=defaultK();
-  const famOpt=sel=>Object.keys(FAM).map(k=>{const e=R.all.find(x=>x.key===k);const tag=e.bad?`（${e.bad}個構件不可行）`:(!e.valid?'（唔適用）':'');return `<option value="${k}" ${k===sel?'selected':''}>${k}：${esc(FAM[k].zh)}${tag}</option>`;}).join('');
-  let html=`<div class="card"><h2>揀兩個方案</h2><div class="row"><label>方案一 <select id="pk1">${famOpt(a)}</select></label><label>方案二 <select id="pk2">${famOpt(b)}</select></label><button id="pkAuto">自動揀</button></div>
-  <div class="hint" style="margin-top:6px">可行體系（相對造價由低至高）：${R.ok.map(e=>`${e.key}（${f(e.cost,1)}）`).join(' › ')||'冇全部可行嘅體系'}${R.rest.length?'；未能採用：'+R.rest.map(e=>e.key+(e.bad?`（${e.bad}個不可行）`:'（唔適用）')).join('、'):''}</div></div>`;
-  html+=`<div class="card"><h2>比較及推薦</h2><table><thead><tr><th>準則</th><th>方案一 ${a}</th><th>方案二 ${b}</th><th>說明</th></tr></thead><tbody>${rec.rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.w===0||r.w===2?'✓':''}</td><td>${r.w===1||r.w===2?'✓':''}</td><td class="hint">${esc(r.why)}</td></tr>`).join('')}
-  <tr><th>得分</th><th>${rec.pts[0]}</th><th>${rec.pts[1]}</th><th></th></tr></tbody></table>
-  <p><b>推薦：方案${rec.rec===0?'一':'二'}（${[a,b][rec.rec]}：${esc(FAM[[a,b][rec.rec]].zh)}）</b> <span class="hint">準則屬粗略比較，請按題目要求自行判斷。</span></p></div>`;
-  html+=`<div class="card"><h2>方案柱位及構件圖</h2><div class="row" style="margin-bottom:6px"><label>方案 <select id="sv">${[a,b].map((k,i)=>`<option value="${i}" ${i===schemeView?'selected':''}>方案${i?'二':'一'}（${k}）</option>`).join('')}</select></label><label>樓板 ${levelSelect('selK2',viewK2)}</label></div>${planSVG(M,viewK2,[e1,e2][schemeView])}${legend(true)}</div>`;
+  const famOpt=sel=>Object.keys(FAM).map(k=>{const e=R.all.find(x=>x.key===k);const tag=e.bad?` (${e.bad} member(s) not feasible)`:(!e.valid?' (not applicable)':'');return `<option value="${k}" ${k===sel?'selected':''}>${k}: ${esc(FAM[k].short)}${tag}</option>`;}).join('');
+  let html=`<div class="card"><h2>Choose two schemes</h2><div class="row"><label>Scheme 1 <select id="pk1">${famOpt(a)}</select></label><label>Scheme 2 <select id="pk2">${famOpt(b)}</select></label><button id="pkAuto">Auto-select</button></div>
+  <div class="hint" style="margin-top:6px">Feasible systems (relative cost, low to high): ${R.ok.map(e=>`${e.key} (${f(e.cost,1)})`).join(' › ')||'no fully feasible system'}${R.rest.length?'; not usable: '+R.rest.map(e=>e.key+(e.bad?` (${e.bad} not feasible)`:' (not applicable)')).join(', '):''}</div></div>`;
+  html+=`<div class="card"><h2>Comparison and recommendation</h2><table><thead><tr><th>Criterion</th><th>Scheme 1 (${a})</th><th>Scheme 2 (${b})</th><th>Note</th></tr></thead><tbody>${rec.rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.w===0||r.w===2?'✓':''}</td><td>${r.w===1||r.w===2?'✓':''}</td><td class="hint">${esc(r.why)}</td></tr>`).join('')}
+  <tr><th>Score</th><th>${rec.pts[0]}</th><th>${rec.pts[1]}</th><th></th></tr></tbody></table>
+  <p><b>Recommended: Scheme ${rec.rec===0?'1':'2'} (${[a,b][rec.rec]}: ${esc(FAM[[a,b][rec.rec]].short)})</b> <span class="hint">The criteria are a rough comparison; use your own judgement against the question's requirements.</span></p></div>`;
+  html+=`<div class="card"><h2>Scheme framing plan</h2><div class="row" style="margin-bottom:6px"><label>Scheme <select id="sv">${[a,b].map((k,i)=>`<option value="${i}" ${i===schemeView?'selected':''}>Scheme ${i+1} (${k})</option>`).join('')}</select></label><label>Slab ${levelSelect('selK2',viewK2)}</label></div>${planSVG(M,viewK2,[e1,e2][schemeView])}${legend(true)}</div>`;
   const recTxt=`Recommendation: Scheme ${rec.rec===0?'1':'2'} (${FAM[[a,b][rec.rec]].en}) is recommended because:\n`+rec.rows.filter(r=>r.w===rec.rec).map(r=>`- ${r.en}`).join('\n');
   const t1=schemeText(M,e1,'Scheme 1'), t2=schemeText(M,e2,'Scheme 2');
-  html+=`<div class="grid2"><div class="card"><h2>方案一（英文初稿）<button data-copy="t1" style="float:right">複製</button></h2><pre class="txt" id="t1">${esc(t1)}</pre></div>
-  <div class="card"><h2>方案二（英文初稿）<button data-copy="t2" style="float:right">複製</button></h2><pre class="txt" id="t2">${esc(t2)}</pre></div></div>
-  <div class="card"><h2>推薦理由（英文初稿）<button data-copy="t3" style="float:right">複製</button></h2><pre class="txt" id="t3">${esc(recTxt)}</pre></div>
-  <div class="card"><h2>匯出</h2><button id="bCsv">匯出構件表 CSV（貼入試算表）</button> <button id="bTxt">匯出全部文字 .txt</button></div>`;
+  html+=`<div class="grid2"><div class="card"><h2>Scheme 1 (draft text)<button data-copy="t1" style="float:right">Copy</button></h2><pre class="txt" id="t1">${esc(t1)}</pre></div>
+  <div class="card"><h2>Scheme 2 (draft text)<button data-copy="t2" style="float:right">Copy</button></h2><pre class="txt" id="t2">${esc(t2)}</pre></div></div>
+  <div class="card"><h2>Reasons for recommendation (draft text)<button data-copy="t3" style="float:right">Copy</button></h2><pre class="txt" id="t3">${esc(recTxt)}</pre></div>
+  <div class="card"><h2>Export</h2><button id="bCsv">Export member table CSV (for your spreadsheet)</button> <button id="bTxt">Export all text (.txt)</button></div>`;
   h.innerHTML=html;
   $('#pk1').onchange=e=>{S.pick.s1=e.target.value; if(S.pick.s2===S.pick.s1) S.pick.s2=''; persist(); renderSchemes();};
   $('#pk2').onchange=e=>{S.pick.s2=e.target.value; if(!S.pick.s1) S.pick.s1=a; persist(); renderSchemes();};
@@ -1376,7 +1376,7 @@ function renderSchemes(){
   $('#bTxt').onclick=()=>download('schemes.txt',`${S.title}\n\n${t1}\n\n${t2}\n\n${recTxt}\n`,'text/plain');
 }
 
-/* ---------- 跨度題 ---------- */
+/* ---------- Span questions ---------- */
 function runSVG(run,picks){
   const Lr=num(run.L)||1; const W=820,pad=30; const s=(W-2*pad)/Lr;
   const zs=(run.zones||[]).map(z=>({from:num(z.from),to:num(z.to),name:z.name,noSupport:!!z.noSupport,noTemp:!!z.noTemp,depth:num(z.depth)})).filter(z=>z.from!==null&&z.to!==null);
@@ -1384,43 +1384,43 @@ function runSVG(run,picks){
   let g='';
   zs.forEach((z,i)=>{ const a=Math.min(z.from,z.to),b=Math.max(z.from,z.to);
     g+=`<rect x="${X(a)}" y="18" width="${(b-a)*s}" height="${H-30}" fill="${z.noSupport?'var(--colfree)':'var(--void)'}" fill-opacity=".45" stroke="var(--mute)" stroke-dasharray="4 3"/>`;
-    g+=`<text x="${X(a)+3}" y="${30+(i%2)*12}">${esc(z.name)}${z.depth!==null?'（深≤'+z.depth+'m）':''}${z.noTemp?' 禁臨時工程':''}</text>`; });
+    g+=`<text x="${X(a)+3}" y="${30+(i%2)*12}">${esc(z.name)}${z.depth!==null?' (depth ≤ '+z.depth+' m)':''}${z.noTemp?' no temp. works':''}</text>`; });
   g+=`<text x="${X(0)}" y="12">0</text><text x="${X(Lr)}" y="12" text-anchor="end">${f(Lr,1)} m</text>`;
   picks.forEach((r,pi)=>{ const y=60+pi*rowH+20; const c=pi?'var(--m2)':'var(--m1)';
-    g+=`<text x="${pad}" y="${y-16}" style="font-weight:600;fill:${c}">方案${pi?'二':'一'}：${esc(r.sys.zh)}</text>`;
+    g+=`<text x="${pad}" y="${y-16}" style="font-weight:600;fill:${c}">Scheme ${pi+1}: ${esc(r.sys.name)}</text>`;
     g+=`<line x1="${X(0)}" y1="${y}" x2="${X(Lr)}" y2="${y}" stroke="${c}" stroke-width="5"/>`;
     r.sup.forEach(x=>{ g+=`<path d="M${X(x)} ${y+3}l-7 12h14z" fill="${c}"/><text x="${X(x)}" y="${y+27}" text-anchor="middle" style="font-size:10px">${f(x,1)}</text>`; });
-    r.spans.forEach(sp=>{ g+=`<text x="${X((sp.a+sp.b)/2)}" y="${y-5}" text-anchor="middle" style="font-size:10px">${f(sp.s,1)}m</text>`; });
-    r.cants.forEach(cn=>{ g+=`<text x="${X((cn.a+cn.b)/2)}" y="${y-5}" text-anchor="middle" style="font-size:10px">懸臂 ${f(cn.s,1)}m</text>`; });
+    r.spans.forEach(sp=>{ g+=`<text x="${X((sp.a+sp.b)/2)}" y="${y-5}" text-anchor="middle" style="font-size:10px">${f(sp.s,1)} m</text>`; });
+    r.cants.forEach(cn=>{ g+=`<text x="${X((cn.a+cn.b)/2)}" y="${y-5}" text-anchor="middle" style="font-size:10px">cantilever ${f(cn.s,1)} m</text>`; });
   });
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px">${g}</svg>`;
 }
 function renderSpans(){
   const h=$('#tab-spans'); h.innerHTML='';
-  const intro=card(h,'跨度題（橋、行人天橋、看台屋面、溫室等）','沿一條線（例如橋嘅縱向、屋面嘅橫向或縱向）輸入總長、唔准放支座嘅範圍、深度限制，程式自動揀支座位置同結構類型，出兩個方案。兩個方向都有限制就開兩行（例如屋面橫向同縱向）。距離由起點量度，單位 m；限制區請包括所需淨距。');
+  const intro=card(h,'Span questions (bridges, footbridges, stand roofs, glasshouses, etc.)','Along one line (e.g. along a bridge, or across / along a roof) enter the total length, zones where supports are not allowed, and depth limits. The tool chooses support positions and structural types and gives two schemes. If both directions are constrained, add two lines (e.g. roof transverse and longitudinal). Distances are measured from the start in m; include any required clearance in the zones.');
   const rb=document.createElement('div'); rb.className='row';
   const addBtn=(t,fn)=>{const b=document.createElement('button');b.textContent=t;b.onclick=fn;rb.appendChild(b);};
-  addBtn('＋ 新增一條',()=>{S.runs.push({name:'新跨度',kind:'bridge',L:30,startSup:true,endSup:true,minSpacing:'',maxSupports:'',defaultDepth:'',possession:false,light:false,rockDepth:'',soft:false,zones:[]});persist();renderSpans();});
-  addBtn('加入範例：Q6 行車橋',()=>{S.runs.push(clone(RUN_Q6));persist();renderSpans();});
-  addBtn('加入範例：Q4 行人天橋',()=>{S.runs.push(clone(RUN_Q4));persist();renderSpans();});
-  addBtn('加入範例：Q3 看台屋面（兩個方向）',()=>{S.runs.push(clone(RUN_Q3X),clone(RUN_Q3L));persist();renderSpans();});
+  addBtn('+ Add a line',()=>{S.runs.push({name:'New span',kind:'bridge',L:30,startSup:true,endSup:true,minSpacing:'',maxSupports:'',defaultDepth:'',possession:false,light:false,rockDepth:'',soft:false,zones:[]});persist();renderSpans();});
+  addBtn('Add example: Q6 road bridge',()=>{S.runs.push(clone(RUN_Q6));persist();renderSpans();});
+  addBtn('Add example: Q4 footbridge',()=>{S.runs.push(clone(RUN_Q4));persist();renderSpans();});
+  addBtn('Add example: Q3 stand roof (two directions)',()=>{S.runs.push(clone(RUN_Q3X),clone(RUN_Q3L));persist();renderSpans();});
   intro.appendChild(rb);
   const lib=document.createElement('details'); lib.style.marginTop='8px';
-  lib.innerHTML='<summary>睇結構類型資料庫（跨深比、最大跨度）</summary>'+Object.entries(SPAN_LIB).map(([k,arr])=>`<h3>${KIND_ZH[k]}</h3><table><thead><tr><th>類型</th><th>跨深比／固定深度</th><th>最大跨度</th><th>懸臂</th><th>需臨時支架</th></tr></thead><tbody>${arr.map(s=>`<tr><td>${esc(s.zh)}</td><td>${s.fixedDepth?'固定 '+s.fixedDepth+'m':'L/'+s.ratio}</td><td>${s.maxSpan}m</td><td>${s.noCant?'不可':s.cantMax?'≤'+s.cantMax+'m':s.cantRatio?'L/'+s.cantRatio:'不可'}</td><td>${s.falsework?'要':'唔使'}</td></tr>`).join('')}</tbody></table>`).join('');
+  lib.innerHTML='<summary>Show the structural system library (span/depth ratios, max. spans)</summary>'+Object.entries(SPAN_LIB).map(([k,arr])=>`<h3>${KIND_NAME[k]}</h3><table><thead><tr><th>System</th><th>Span/depth or fixed depth</th><th>Max. span</th><th>Cantilever</th><th>Needs falsework</th></tr></thead><tbody>${arr.map(s=>`<tr><td>${esc(s.name)}</td><td>${s.fixedDepth?'fixed '+s.fixedDepth+' m':'L/'+s.ratio}</td><td>${s.maxSpan} m</td><td>${s.noCant?'no':s.cantMax?'≤ '+s.cantMax+' m':s.cantRatio?'L/'+s.cantRatio:'no'}</td><td>${s.falsework?'yes':'no'}</td></tr>`).join('')}</tbody></table>`).join('');
   intro.appendChild(lib);
   S.runs.forEach((run,ri)=>{
-    const c=card(h,`${ri+1}. ${run.name||'跨度'}`);
+    const c=card(h,`${ri+1}. ${run.name||'Span'}`);
     const r1=document.createElement('div'); r1.className='row';
     const redraw=()=>renderSpans();
-    r1.append(field('名稱',run,'name',{w:'220px'}),field('類型',run,'kind',{type:'select',options:Object.entries(KIND_ZH),after:redraw}),field('總長 m',run,'L',{w:'70px'}),
-      field('起點可放支座',run,'startSup',{type:'check',after:redraw}),field('終點可放支座',run,'endSup',{type:'check',after:redraw}),field('最小支座距離 m',run,'minSpacing',{w:'70px'}),field('支座數目上限',run,'maxSupports',{w:'70px'}),
-      field('一般深度限制 m',run,'defaultDepth',{w:'70px'}),field('只可封路時段施工',run,'possession',{type:'check',after:redraw}),field('要求輕型結構',run,'light',{type:'check',after:redraw}),
-      field('岩面深度（地面以下）m',run,'rockDepth',{w:'70px'}),field('軟土／填土',run,'soft',{type:'check',after:redraw}));
+    r1.append(field('Name',run,'name',{w:'220px'}),field('Type',run,'kind',{type:'select',options:Object.entries(KIND_NAME),after:redraw}),field('Total length (m)',run,'L',{w:'70px'}),
+      field('Support allowed at start',run,'startSup',{type:'check',after:redraw}),field('Support allowed at end',run,'endSup',{type:'check',after:redraw}),field('Min. support spacing (m)',run,'minSpacing',{w:'70px'}),field('Max. number of supports',run,'maxSupports',{w:'70px'}),
+      field('General depth limit (m)',run,'defaultDepth',{w:'70px'}),field('Construction only during possessions',run,'possession',{type:'check',after:redraw}),field('Light structure required',run,'light',{type:'check',after:redraw}),
+      field('Rockhead depth below ground (m)',run,'rockDepth',{w:'70px'}),field('Soft ground / fill',run,'soft',{type:'check',after:redraw}));
     c.appendChild(r1);
-    const zt=document.createElement('div'); zt.style.marginTop='8px'; zt.innerHTML='<div class="hint">限制區（由起點量度）</div>'; c.appendChild(zt);
-    tableEditor(zt,run.zones,[{key:'name',label:'名稱'},{key:'from',label:'由 m',type:'num'},{key:'to',label:'至 m',type:'num'},{key:'noSupport',label:'不准放支座',type:'check',def:true},{key:'noTemp',label:'不准臨時工程',type:'check'},{key:'depth',label:'深度上限 m',type:'num'}],redraw);
+    const zt=document.createElement('div'); zt.style.marginTop='8px'; zt.innerHTML='<div class="hint">Restricted zones (measured from the start)</div>'; c.appendChild(zt);
+    tableEditor(zt,run.zones,[{key:'name',label:'Name'},{key:'from',label:'From (m)',type:'num'},{key:'to',label:'To (m)',type:'num'},{key:'noSupport',label:'No supports',type:'check',def:true},{key:'noTemp',label:'No temporary works',type:'check'},{key:'depth',label:'Max. depth (m)',type:'num'}],redraw);
     const out=document.createElement('div'); out.className='runout'; out.dataset.ri=ri; c.appendChild(out);
-    const del=document.createElement('button'); del.textContent='刪除呢條'; del.style.marginTop='8px'; del.onclick=()=>{ if(confirm('刪除？')){S.runs.splice(ri,1);persist();renderSpans();} }; c.appendChild(del);
+    const del=document.createElement('button'); del.textContent='Delete this line'; del.style.marginTop='8px'; del.onclick=()=>{ if(confirm('Delete?')){S.runs.splice(ri,1);persist();renderSpans();} }; c.appendChild(del);
   });
   updateSpanOutputs();
 }
@@ -1428,30 +1428,30 @@ function updateSpanOutputs(){
   document.querySelectorAll('#tab-spans .runout').forEach(out=>{
     const run=S.runs[+out.dataset.ri]; if(!run) return;
     const E=evalRun(run);
-    let html=`<h3>各結構類型結果</h3><div class="tblwrap"><table><thead><tr><th>類型</th><th>結果</th><th>支座位置 m</th><th>最大跨／懸臂</th><th>所需深度</th><th>分數（低＝好）</th></tr></thead><tbody>`;
-    E.res.forEach(r=>{ html+=`<tr><td>${esc(r.sys.zh)}</td><td class="${r.ok?'ok':'bad'}">${r.ok?'可行':'不可行'}</td><td>${r.ok?r.sup.map(x=>f(x,1)).join('、'):esc(r.why||'')}</td><td>${r.ok?f(Math.max(0,...r.spans.map(s=>s.s)),1)+(r.cants.length?'／懸臂 '+r.cants.map(c=>f(c.s,1)).join('、'):''):''}</td><td>${r.ok?f(r.maxReq):''}</td><td>${r.ok?f(r.score,1):''}</td></tr>`; });
+    let html=`<h3>Results by structural system</h3><div class="tblwrap"><table><thead><tr><th>System</th><th>Result</th><th>Support positions (m)</th><th>Max. span / cantilever</th><th>Depth required</th><th>Score (lower = better)</th></tr></thead><tbody>`;
+    E.res.forEach(r=>{ html+=`<tr><td>${esc(r.sys.name)}</td><td class="${r.ok?'ok':'bad'}">${r.ok?'feasible':'not feasible'}</td><td>${r.ok?r.sup.map(x=>f(x,1)).join(', '):esc(r.why||'')}</td><td>${r.ok?f(Math.max(0,...r.spans.map(s=>s.s)),1)+(r.cants.length?' / cantilever '+r.cants.map(c=>f(c.s,1)).join(', '):''):''}</td><td>${r.ok?f(r.maxReq):''}</td><td>${r.ok?f(r.score,1):''}</td></tr>`; });
     html+='</tbody></table></div>';
     if (E.pick.length){
       html+=runSVG(run,E.pick);
-      E.pick.forEach((r,i)=>{ const id=`rt${out.dataset.ri}_${i}`; html+=`<div class="card" style="margin-top:8px"><h2>方案${i?'二':'一'}（英文初稿）<button data-copy="${id}" style="float:right">複製</button></h2><pre class="txt" id="${id}">${esc(runText(run,r,'Scheme '+(i+1)))}</pre></div>`; });
+      E.pick.forEach((r,i)=>{ const id=`rt${out.dataset.ri}_${i}`; html+=`<div class="card" style="margin-top:8px"><h2>Scheme ${i+1} (draft text)<button data-copy="${id}" style="float:right">Copy</button></h2><pre class="txt" id="${id}">${esc(runText(run,r,'Scheme '+(i+1)))}</pre></div>`; });
       if (E.pick.length===2){ const [p,q]=E.pick; const why=[]; if(p.score<q.score) why.push('lower overall cost (balance of member size and number of supports)'); if(p.sup.length<q.sup.length) why.push('fewer supports within the constrained site'); if(run.possession&&p.sys.lift) why.push('can be erected within the possession periods without falsework'); if(run.light&&p.sys.mat==='st') why.push("meets the client's requirement for a light structure");
-        const id=`rr${out.dataset.ri}`; html+=`<div class="card"><h2>推薦理由（英文初稿）<button data-copy="${id}" style="float:right">複製</button></h2><pre class="txt" id="${id}">${esc(`Recommendation: Scheme 1 (${p.sys.en}) is recommended because:\n`+(why.length?why:['better overall balance of cost, buildability and risk']).map(w=>'- '+w).join('\n'))}</pre></div>`; }
-      if (E.pick.length<2) html+='<div class="err">只得一個可行類型：考慮放寬限制（例如支座位置、深度）或人手判斷第二個方案。</div>';
-    } else html+='<div class="err">冇可行嘅結構類型：檢查限制區、深度上限、支座數目，或者呢題需要特別體系（例如拱橋、斜拉）【需人手判斷】。</div>';
+        const id=`rr${out.dataset.ri}`; html+=`<div class="card"><h2>Reasons for recommendation (draft text)<button data-copy="${id}" style="float:right">Copy</button></h2><pre class="txt" id="${id}">${esc(`Recommendation: Scheme 1 (${p.sys.en}) is recommended because:\n`+(why.length?why:['better overall balance of cost, buildability and risk']).map(w=>'- '+w).join('\n'))}</pre></div>`; }
+      if (E.pick.length<2) html+='<div class="err">Only one feasible system: consider relaxing the constraints (support positions, depth) or choose the second scheme by judgement.</div>';
+    } else html+='<div class="err">No feasible system: check the restricted zones, depth limits and support count, or this question needs a special system (e.g. arch bridge, cable-stayed) [MANUAL JUDGEMENT].</div>';
     out.innerHTML=html; bindCopy(out);
   });
 }
 
-/* ---------- 其他 ---------- */
-function bindCopy(root){ root.querySelectorAll('[data-copy]').forEach(btn=>btn.onclick=()=>{ const t=document.getElementById(btn.dataset.copy).textContent; (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>flash('已複製'),()=>flash('複製失敗，請手動選取')); }); }
+/* ---------- Misc ---------- */
+function bindCopy(root){ root.querySelectorAll('[data-copy]').forEach(btn=>btn.onclick=()=>{ const t=document.getElementById(btn.dataset.copy).textContent; (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>flash('Copied'),()=>flash('Copy failed; please select the text manually')); }); }
 function download(name,text,type){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:type+';charset=utf-8'})); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500); }
 let flashT; function flash(t){ $('#status').textContent=t; clearTimeout(flashT); flashT=setTimeout(()=>$('#status').textContent='',2500); }
 let tabNow='input', timer=null;
 function changed(){ persist(); clearTimeout(timer); timer=setTimeout(recompute,250); }
 function recompute(){
-  try { M=buildModel(S); } catch(e){ M={err:['計算出錯：'+e.message]}; console.error(e); }
+  try { M=buildModel(S); } catch(e){ M={err:['Calculation error: '+e.message]}; console.error(e); }
   if (tabNow==='input') renderDraw(); if (tabNow==='analysis') renderAnalysis(); if (tabNow==='schemes') renderSchemes(); if (tabNow==='spans') updateSpanOutputs();
-  const n=M.err?.length; $('#status').textContent=n?`有 ${n} 項輸入問題（見分析頁）`:`已更新：${M.members?.length||0} 個長跨／轉換構件，${M.tpoints?.length||0} 個轉換點`;
+  const n=M.err?.length; $('#status').textContent=n?`${n} input problem(s) (see analysis tab)`:`Updated: ${M.members?.length||0} long-span / transfer members, ${M.tpoints?.length||0} transfer points`;
 }
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
   tabNow=b.dataset.tab; document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
@@ -1462,12 +1462,12 @@ document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
 $('#selPreset').onchange=e=>{
   const v=e.target.value; e.target.value=''; if(!v) return;
   if (v==='spans'){ S.runs.push(clone(RUN_Q6),clone(RUN_Q4),clone(RUN_Q3X),clone(RUN_Q3L)); persist(); document.querySelector('nav button[data-tab=spans]').click(); return; }
-  if (!confirm('載入會取代目前樓宇輸入（跨度題保留），確定？')) return;
-  const runs=S.runs; S=normalize(v==='q2'?PRESET_Q2:v==='q1'?presetQ1():BLANK); S.runs=runs; viewK=viewK2=null; renderInput(); changed();
+  if (!confirm('Loading will replace the current building input (span questions are kept). Continue?')) return;
+  const runs=S.runs; S=normalize(v==='q2'?PRESET_Q2:v==='q1'?presetQ1():BLANK); S.runs=runs; viewK=viewK2=null; DRAW.s=null; renderInput(); changed();
 };
 $('#bSave').onclick=()=>download((S.title||'project').replace(/[\\/:*?"<>|]/g,'_')+'.json',JSON.stringify(S,null,1),'application/json');
 $('#bOpen').onclick=()=>$('#fOpen').click();
-$('#fOpen').onchange=e=>{ const file=e.target.files[0]; if(!file)return; const r=new FileReader(); r.onload=()=>{ try{ const d=JSON.parse(r.result); if(!(d.grids||d.grid)||!d.levels) throw new Error('格式不符'); S=normalize(d); viewK=viewK2=null; renderInput(); if(tabNow==='spans') renderSpans(); changed(); flash('已開啟 '+file.name);}catch(err){alert('開啟失敗：'+err.message);} }; r.readAsText(file); e.target.value=''; };
+$('#fOpen').onchange=e=>{ const file=e.target.files[0]; if(!file)return; const r=new FileReader(); r.onload=()=>{ try{ const d=JSON.parse(r.result); if(!(d.grids||d.grid)||!d.levels) throw new Error('unrecognised format'); S=normalize(d); viewK=viewK2=null; DRAW.s=null; renderInput(); if(tabNow==='spans') renderSpans(); changed(); flash('Opened '+file.name);}catch(err){alert('Could not open: '+err.message);} }; r.readAsText(file); e.target.value=''; };
 
 renderInput(); recompute();
 </script>
