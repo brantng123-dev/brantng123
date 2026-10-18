@@ -171,7 +171,7 @@ function compile(W, wx, wy, lay){
   if (lay&&lay.sg){ const g=lay.sg; sxl=g.x.labels; syl=g.y.labels; grids[0]=gDef('M',g,'',''); }
   if (lay&&lay.band){ const b=lay.band; sxl=b.lower.x.labels; syl=b.lower.y.labels; grids[0]=gDef('M',b.lower,names[0],names[b.u-1]); grids.splice(1,0,gDef('U',b.upper,names[b.u],names[ns-1])); }
   // transfer mode: columns above a column-free zone / void continue and are transferred at the zone roof
-  if (lay&&lay.tmode==='keep') zones.filter(z=>z.type==='void'||z.type==='colfree').slice().forEach(z=>{ const i=names.indexOf(z.s2); if(i>=0&&i<ns-1) zones.push({type:'keep',name:'Transfer over '+z.name,x1:z.x1,x2:z.x2,y1:z.y1,y2:z.y2,s1:names[i+1],s2:names[ns-1],head:'',svc:''}); });
+  if (lay&&lay.tmode==='keep') zones.filter(z=>z.type==='void'||z.type==='colfree').slice().forEach(z=>{ const i=names.indexOf(z.s2); const f=Math.max(i+1,lay.from??i+1); if(i>=0&&f<ns) zones.push({type:'keep',name:'Transfer over '+z.name,x1:z.x1,x2:z.x2,y1:z.y1,y2:z.y2,s1:names[f],s2:names[ns-1],head:'',svc:''}); });
   const S={title:W.title,grids,levels,zones,walls,columns:[],removed:[],specials:[],
     site:{refLevel:String(W.floors.ground||'G/F'),refMpd:num(W.site.ground),gwl:num(W.site.gwl),rock:num(W.site.rock),raftT:num(W.site.raft)||1,adjacent:!!W.site.adjacent,soils:[]},
     rules:{minSpacing:0,wallsBanned:(W.types||[]).some(t=>t.noWall),autoStop:true},params:{...DEFAULT_PARAMS,inclMax:W.set.inclMax,plate:W.set.plateRatio,rcWall:W.set.wallRatio}};
@@ -247,18 +247,20 @@ function* layoutGen(W){
   const all=ns?[...Array(ns).keys()]:[];
   const X=axisC('x',all), Y=axisC('y',all);
   const needT=M.col.some(row=>row.some(v=>v==='nosupport'));
-  const tms=needT?['stop','keep']:['stop'];
+  // transfer storey: directly above each restricted zone, or at / above a plant / refuge floor higher up
+  const starts=new Set(); M.zones.filter(z=>z.type==='void'||z.type==='colfree').forEach(z=>{ if(z.s2+1<ns) starts.add(z.s2+1); C.lv.forEach((l,f)=>{ if(l.free&&f>z.s2){ if(f<ns) starts.add(f); if(f+1<ns) starts.add(f+1); } }); });
+  const tms=needT?['stop',...[...starts].sort((a,b)=>a-b).map(f=>'keep@'+f)]:['stop'];
   const cands=[]; const total=X.length*Y.length*tms.length; let done=0;
   for (const gx of X) for (const gy of Y) for (const tm of tms){
     const arch=gx.kind==='arch'&&gy.kind==='arch';
-    const lay={arch,sg:arch?null:{x:gx,y:gy},tmode:tm,nx:gx.pos.length-1,ny:gy.pos.length-1,gx,gy,gkey:JSON.stringify([gx.pos,gy.pos])};
+    const lay={arch,sg:arch?null:{x:gx,y:gy},tmode:tm==='stop'?'stop':'keep',from:tm==='stop'?null:+tm.slice(5),tkey:tm,nx:gx.pos.length-1,ny:gy.pos.length-1,gx,gy,gkey:JSON.stringify([gx.pos,gy.pos])};
     const sc=screen(lay); done++; if(done%8===0) yield {phase:'Screening column layouts',i:done,n:total};
     if (sc||arch) cands.push({...lay,scr:sc||{score:99}});
   }
   // stage-2 selection: architectural grid always; then the best layout of each (bays X x bays Y x transfer) family
   const maxL=num(st.maxLayouts)||40; const pick=[]; const fam=new Map();
   cands.filter(c=>c.arch).forEach(c=>pick.push(c));
-  cands.filter(c=>!c.arch).sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ const k=`${c.nx}x${c.ny}|${c.tmode}`; if(!fam.has(k)) fam.set(k,c); });
+  cands.filter(c=>!c.arch).sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ const k=`${c.nx}x${c.ny}|${c.tkey}`; if(!fam.has(k)) fam.set(k,c); });
   [...fam.values()].sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ if(pick.length<maxL) pick.push(c); });
   // two-band layouts: a different grid above a transfer level
   const gIdx=Math.max(0,names.findIndex(n=>normF(n)===normF(W.floors.ground||'G/F')));
@@ -275,10 +277,11 @@ function* layoutGen(W){
         if (sc) bandC.push({...lay,scr:sc}); } } }
   const bf=new Map(); bandC.sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ const k=`${c.band.u}|${c.ux.pos.length}x${c.uy.pos.length}`; if(!bf.has(k)) bf.set(k,c); });
   [...bf.values()].slice(0,Math.max(4,Math.round(maxL/4))).forEach(c=>pick.push(c));
-  pick.forEach((l,i)=>{ l.id=l.arch&&l.tmode==='stop'?'A':l.arch?'B':'L'+(i+1);
+  let nb=0; pick.forEach((l,i)=>{ l.id=l.arch&&l.tmode==='stop'&&!l.band?'A':l.arch&&!l.band?'B'+(nb++?nb:''):'L'+(i+1);
+    l.ttxt=l.band?`TWO-BAND GRID, TRANSFER AT ${names[l.band.u]}`:l.tmode==='keep'?`COLUMNS CONTINUE, TRANSFERRED AT ${[...new Set(M.zones.filter(z=>z.type==='void'||z.type==='colfree').map(z=>names[Math.max(z.s2+1,l.from)]).filter(Boolean))].join(' / ')}`:'COLUMNS STOP AT RESTRICTED ZONES (NO TRANSFER)';
     const gx=l.gx||{txt:bayTxt(archP.x)}, gy=l.gy||{txt:bayTxt(archP.y)};
     l.bays={x:gx.txt||bayTxt(archP.x),y:gy.txt||bayTxt(archP.y)};
-    l.short=`${l.arch?'ARCHITECTURAL GRID':'GRID'} X ${l.bays.x}; Y ${l.bays.y}${l.band?`; FROM ${names[l.band.u]} UP: X ${l.ux.txt}; Y ${l.uy.txt} (TRANSFER AT ${names[l.band.u]})`:''}; ${l.band?'TWO-BAND GRID':l.tmode==='keep'?'COLUMNS OVER RESTRICTED ZONES TRANSFERRED':'COLUMNS STOP AT RESTRICTED ZONES (NO TRANSFER)'}`; });
+    l.short=`${l.arch?'ARCHITECTURAL GRID':'GRID'} X ${l.bays.x}; Y ${l.bays.y}${l.band?`; FROM ${names[l.band.u]} UP: X ${l.ux.txt}; Y ${l.uy.txt} `:''}; ${l.ttxt}`; });
   return pick;
 }
 function* evalGen(W){
@@ -313,15 +316,17 @@ function distinctBy(a,b){ const A=sigOf(a), B=sigOf(b), d=[]; if(layDiff(a.lay,b
 function weakDiff(a,b){ const A=sigOf(a), B=sigOf(b); return !distinctBy(a,b).length&&(A.tr!==B.tr||A.lay!==B.lay); }
 const feasibleE=e=>e.R.applicable&&e.R.worst!=='fail';
 function recPair(L){
-  const fe=L.filter(feasibleE).sort((a,b)=>V_RANK[a.R.worst]-V_RANK[b.R.worst]||(a.lay.arch?0:1)-(b.lay.arch?0:1)||a.R.checks.filter(c=>c.v==='marg').length-b.R.checks.filter(c=>c.v==='marg').length);
-  if (!fe.length) return null; const a=fe[0];
-  const wt=x=>x.d.length+(x.d.some(t=>t.startsWith('column'))?2:0)-((x.b.lay.scr&&x.b.lay.scr.u)||0);
-  const cands=fe.slice(1).map(b=>({b,d:distinctBy(a,b)})).filter(x=>x.d.length).sort((x,y)=>V_RANK[x.b.R.worst]-V_RANK[y.b.R.worst]||(wt(y)-wt(x))||(y.d.length-x.d.length)||((x.b.sc.mat!==a.sc.mat)?-1:0)-((y.b.sc.mat!==a.sc.mat)?-1:0));
-  // keep one partner per signature for the "other options" list
-  const seen=new Set(), others=[]; cands.forEach(x=>{ const sg=sigOf(x.b), k=sg.lay+"|"+sg.tm+"|"+sg.floor+"|"+major(sg.tr); if(!seen.has(k)){ seen.add(k); others.push(x); } });
-  return {a,b:cands[0]?cands[0].b:null,d:cands[0]?cands[0].d:[],others:others.slice(1,5)};
+  // answer = one RC scheme + one steel scheme that are distinct (column spacing / transfer) — preferred uniform, passing
+  const rank=(a,b)=>V_RANK[a.R.worst]-V_RANK[b.R.worst]||(a.lay.arch?0:1)-(b.lay.arch?0:1)||((a.lay.scr&&a.lay.scr.u)||0)-((b.lay.scr&&b.lay.scr.u)||0);
+  const fe=L.filter(feasibleE), rc=fe.filter(e=>e.sc.mat==='rc').sort(rank), stl=fe.filter(e=>e.sc.mat==='st').sort(rank);
+  const wt=d=>d.length+(d.some(t=>t.startsWith('column'))?2:0);
+  const partner=(a,list)=>list.map(b=>({b,d:distinctBy(a,b)})).filter(x=>x.d.length).sort((x,y)=>V_RANK[x.b.R.worst]-V_RANK[y.b.R.worst]||wt(y.d)-wt(x.d)||rank(x.b,y.b))[0];
+  let a=rc.find(e=>e.sc.id===view.pickRC)||rc[0], b=stl.find(e=>e.sc.id===view.pickST);
+  if (!b&&a){ const p=partner(a,stl); b=p?p.b:stl[0]; }
+  if (!a&&b){ const p=partner(b,rc); a=p?p.b:rc[0]; }
+  if (!a||!b) return a||b?{a:a||b,b:null,d:[],rc,stl}:null;
+  return {a,b,d:distinctBy(a,b),rc,stl};
 }
-
 function assess(W,sc,C,M){
   const st=W.set, L=M.L, nL=M.nL, checks=[], tol=st.tol, step=st.step/1000;
   // geometry / code limits are strict (pass or fail); only depth / thickness may be "slightly off"
@@ -757,11 +762,11 @@ function prosCons(e){
   return {P,C};
 }
 function recHTML(L){
-  const r=recPair(L); if(!r) return `<div class="card rec fail"><b>No viable scheme found.</b> Check the governing issues in the catalogue.</div>`;
-  if (!r.b) return `<div class="card rec marg"><b>Only one distinct viable scheme: ${esc(r.a.sc.id)}.</b> All other viable schemes have the same column layout, floor system and transfer system — changing material only is <b>not</b> a distinct scheme (HKIE). Try adding constraints / grid alternatives.</div>`;
-  return `<div class="card rec pass"><b>Recommended two distinct and viable schemes:</b> <a href="#" data-go="${r.a.sc.id}">${esc(r.a.sc.id)}</a> and <a href="#" data-go="${r.b.sc.id}">${esc(r.b.sc.id)}</a> — distinct by ${r.d.join(', ')}. <button data-cmp="${r.a.sc.id}|${r.b.sc.id}" class="noprint">Compare side by side</button>
-  ${r.others.length?`<div class="note">Other distinct partners for ${esc(r.a.sc.id)}: ${r.others.map(x=>`<a href="#" data-go="${x.b.sc.id}">${esc(x.b.sc.id)}</a> ${V_ICON[x.b.R.worst]} (${x.d.map(t=>t.split(' (')[0]).join(', ')})`).join('; ')}</div>`:''}
-  <div class="note">HKIE: load path and framing plan must be different; RC vs steel with the same layout is NOT distinct.</div></div>`;
+  const r=recPair(L); if(!r) return `<div class="card rec fail"><b>No viable scheme found.</b></div>`;
+  if (!r.b) return `<div class="card rec marg"><b>Only ${r.a.sc.mat==='rc'?'RC':'steel'} schemes are viable</b> — no ${r.a.sc.mat==='rc'?'steel':'RC'} scheme passes.</div>`;
+  const ok=r.d.length>0;
+  return `<div class="card rec ${ok?'pass':'fail'}"><b>Answer: RC <a href="#" data-go="${r.a.sc.id}">${esc(r.a.sc.id)}</a> ${V_ICON[r.a.R.worst]} + STEEL <a href="#" data-go="${r.b.sc.id}">${esc(r.b.sc.id)}</a> ${V_ICON[r.b.R.worst]}</b> — ${ok?`✅ distinct by ${r.d.join(', ')}`:'❌ NOT distinct (same layout and transfer — pick another one in the lists below)'}.
+  <button data-cmp="${r.a.sc.id}|${r.b.sc.id}" class="noprint">Compare side by side</button><div class="note">Choose one RC and one steel scheme in the two lists below. HKIE: load path and framing plan must differ; RC vs steel with the same layout is NOT distinct.</div></div>`;
 }
 function appraisalHTML(L){
   const C0=L[0].C, M0=L[0].M;
@@ -779,7 +784,7 @@ function naReason(e){ const m=e.sc.must; if(m==='PLATE') return 'No transfer lev
 function compareHTML(L){
   const app=L.filter(feasibleE).sort((a,b)=>V_RANK[a.R.worst]-V_RANK[b.R.worst]);
   const r=recPair(L)||{};
-  if (!view.cmpSel) view.cmpSel=[r.a,r.b].filter(Boolean).map(e=>e.sc.id);
+  if (!view.cmpSel||!view.cmpSel.length) view.cmpSel=[r.a,r.b].filter(Boolean).map(e=>e.sc.id);
   const sel=app.filter(e=>view.cmpSel.includes(e.sc.id));
   let h=`<div class="card"><h2>Compare schemes</h2><div class="hint noprint">Tick the schemes to compare (all viable schemes are listed). Distinct = different column spacing / layout or transfer vs no transfer or a different transfer principle. Material alone is NOT distinct.</div>
   <div class="cmplist noprint">${app.map(e=>`<label><input type="checkbox" data-cmpsel="${e.sc.id}" ${view.cmpSel.includes(e.sc.id)?'checked':''}> <b>${e.sc.id}</b> ${V_ICON[e.R.worst]} ${esc(e.sc.name.toLowerCase())} — <span class="note">${esc(e.lay.short.toLowerCase())}</span></label>`).join('')}</div>`;
@@ -818,9 +823,15 @@ function renderOut(){
       const res=!e.R.applicable?'<span class="na">— NOT APPLICABLE</span>':`${V_ICON[e.R.worst]} ${V_TXT[e.R.worst]}`;
       return `<tr data-id="${e.sc.id}" class="${view.scheme===e.sc.id?'sel':''} ${!e.R.applicable?'dim':''}"><td>${e.sc.id}</td><td>${esc(e.sc.name)}${e.sc.note?`<div class="note">${esc(e.sc.note)}</div>`:''}</td><td>${e.lay.id}</td><td style="white-space:nowrap">${res}</td><td>${!e.R.applicable?esc(naReason(e)):worst.map(c=>`${esc(c.item)} — ${esc(c.where)}: ${esc(c.calc)}`).join('<br>')||'—'}</td><td style="white-space:nowrap">${cols.map(c=>esc(c.item.replace('COLUMN ',''))).join('<br>')}</td></tr>`; };
     const app=order.filter(e=>e.R.applicable&&e.R.worst!=='fail'), bad=order.filter(e=>e.R.applicable&&e.R.worst==='fail'), na=order.filter(e=>!e.R.applicable);
-    html+=`<div class="card"><h2>Column layouts with viable schemes (${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).length} of ${RES.lays.length} checked)</h2><div class="hint">Generated from the building length, the minimum column spacing, end cantilevers and the core / restricted-zone edges, then screened (spacing, cantilever, spans). Only the most varied layouts are fully checked (setting “Max. column layouts”).</div><details ${view.layOpen?'open':''} id="layDet"><summary>Show the layout list</summary><table class="mini"><tr><th></th><th>Grid X (bays)</th><th>Grid Y (bays)</th><th>Above transfer level</th><th>Columns over restricted zones</th><th>Viable schemes</th></tr>${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).map(l=>{ const es=L.filter(e=>e.lay===l&&feasibleE(e)); return `<tr><td><b>${l.id}</b></td><td>${esc(l.bays.x)}${l.arch?' (as given)':''}</td><td>${esc(l.bays.y)}</td><td>${l.band?`from ${esc(L[0].C.names[l.band.u])}: X ${esc(l.ux.txt)}; Y ${esc(l.uy.txt)}`:'—'}</td><td>${l.band?'TWO-BAND (TRANSFER)':l.tmode==='keep'?'CONTINUE → TRANSFERRED':'STOP (NO TRANSFER)'}</td><td>${es.map(e=>`<a href="#" data-go="${e.sc.id}">${e.sc.base}</a> ${V_ICON[e.R.worst]}`).join(', ')||'<span class="ng">none</span>'}</td></tr>`; }).join('')}</table></details></div>`;
-    html+=`<div class="card"><h2>Scheme catalogue (all schemes)</h2><div class="hint">✅ pass &nbsp; ⚠️ slightly off (within ${W.set.tol}%, adjust sizes) &nbsp; ❌ not feasible &nbsp; — not applicable. Layouts: see table above. Click a scheme to see its framing plans.</div><table class="mini cat"><tr><th></th><th>Scheme</th><th>Layout</th><th>Result</th><th>Governing issue / reason</th><th>Column types</th></tr>
-    ${app.filter(e=>e.R.worst==='pass'||view.showMarg).map(rowH).join('')}${app.some(e=>e.R.worst==='marg')?`<tr class="noprint"><td colspan="6"><button id="bMarg">${view.showMarg?'Hide':'Show'} ${app.filter(e=>e.R.worst==='marg').length} slightly-off schemes</button></td></tr>`:''}${(bad.length||na.length)?`<tr><td colspan="6" class="na">${bad.length+na.length} not feasible / not applicable combinations hidden.</td></tr>`:''}${false?`<tr><td colspan="6" class="na"><b>Not applicable (${na.length})</b> — the system is not needed in this building:</td></tr>`+na.map(rowH).join(''):''}</table></div>`;
+    html+=`<div class="card"><h2>Column layouts with viable schemes (${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).length} of ${RES.lays.length} checked)</h2><div class="hint">Generated from the building length, the minimum column spacing, end cantilevers and the core / restricted-zone edges, then screened (spacing, cantilever, spans). Only the most varied layouts are fully checked (setting “Max. column layouts”).</div><details ${view.layOpen?'open':''} id="layDet"><summary>Show the layout list</summary><table class="mini"><tr><th></th><th>Grid X (bays)</th><th>Grid Y (bays)</th><th>Above transfer level</th><th>Columns over restricted zones</th><th>Viable schemes</th></tr>${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).map(l=>{ const es=L.filter(e=>e.lay===l&&feasibleE(e)); return `<tr><td><b>${l.id}</b></td><td>${esc(l.bays.x)}${l.arch?' (as given)':''}</td><td>${esc(l.bays.y)}</td><td>${l.band?`from ${esc(L[0].C.names[l.band.u])}: X ${esc(l.ux.txt)}; Y ${esc(l.uy.txt)}`:'—'}</td><td>${esc(l.ttxt)}</td><td>${es.map(e=>`<a href="#" data-go="${e.sc.id}">${e.sc.base}</a> ${V_ICON[e.R.worst]}`).join(', ')||'<span class="ng">none</span>'}</td></tr>`; }).join('')}</table></details></div>`;
+    const rp=recPair(L)||{}; const shown=e=>e.R.worst==='pass'||view.showMarg;
+    const pickRow=(e,role)=>{ const cols=e.R.checks.filter(c=>c.cat==='Column').map(c=>esc(c.item.replace('COLUMN ','').replace(' (ENCASED)',''))).join(', '); const on=(role==='rc'?rp.a:rp.b)===e;
+      const dd=role==='st'&&rp.a?distinctBy(rp.a,e):role==='rc'&&rp.b?distinctBy(e,rp.b):[];
+      return `<tr data-pick="${role}" data-id="${e.sc.id}" class="${on?'sel':''} ${view.scheme===e.sc.id?'cur':''}"><td><input type="radio" name="pk_${role}" ${on?'checked':''}></td><td><b>${e.sc.id}</b> ${V_ICON[e.R.worst]}<div class="note">${esc(e.sc.name.toLowerCase())}</div><div class="note">${esc(e.lay.short.toLowerCase())}</div><div class="note">${cols}</div></td><td style="white-space:nowrap">${dd.length?'✅ distinct':'<span class="ng">same as other</span>'}</td></tr>`; };
+    const col=(list,role,ttl)=>`<div><h3>${ttl} (${list.filter(shown).length})</h3><table class="mini cat pick">${list.filter(shown).map(e=>pickRow(e,role)).join('')}</table></div>`;
+    const nm=app.filter(e=>e.R.worst==='marg').length;
+    html+=`<div class="card"><h2>Choose your two schemes</h2><div class="hint">Left: RC schemes. Right: steel schemes. Click a row to choose it (and to show its plans below). Not feasible ones are hidden (${bad.length+na.length}).</div>
+    <div class="sbs">${col(rp.rc||[],'rc','RC SCHEMES')}${col(rp.stl||[],'st','STEEL SCHEMES')}</div>${nm?`<p class="noprint"><button id="bMarg">${view.showMarg?'Hide':'Show'} ${nm} slightly-off schemes</button></p>`:''}</div>`;
     const E=L.find(e=>e.sc.id===view.scheme)||order[0]; view.scheme=E.sc.id;
     html+=schemeHTML(E);
     h.innerHTML=html; bindOut(); bindReport(E); return;
@@ -832,9 +843,9 @@ function bindOut(){
   const bm=$('#bMarg'); if(bm) bm.onclick=ev=>{ ev.stopPropagation(); view.showMarg=!view.showMarg; renderOut(); };
   const ld=$('#layDet'); if(ld) ld.ontoggle=()=>{ view.layOpen=ld.open; };
   h.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ view.tab=b.dataset.tab; renderOut(); });
-  h.querySelectorAll('.cat tr[data-id]').forEach(tr=>tr.onclick=()=>{ view.scheme=tr.dataset.id; renderOut(); });
+  h.querySelectorAll('.cat tr[data-id]').forEach(tr=>tr.onclick=()=>{ view.scheme=tr.dataset.id; if(tr.dataset.pick==='rc') view.pickRC=tr.dataset.id; if(tr.dataset.pick==='st') view.pickST=tr.dataset.id; renderOut(); });
   h.querySelectorAll('[data-go]').forEach(a=>a.onclick=ev=>{ ev.preventDefault(); view.scheme=a.dataset.go; view.tab='schemes'; renderOut(); });
-  h.querySelectorAll('[data-cmp]').forEach(b=>b.onclick=()=>{ view.cmpSel=b.dataset.cmp.split('|'); view.tab='compare'; renderOut(); });
+  h.querySelectorAll('[data-cmp]').forEach(b=>b.onclick=ev=>{ ev.preventDefault(); view.cmpSel=b.dataset.cmp.split('|'); view.tab='compare'; renderOut(); });
   h.querySelectorAll('input[data-cmpsel]').forEach(c=>c.onchange=()=>{ const id=c.dataset.cmpsel; view.cmpSel=(view.cmpSel||[]).filter(x=>x!==id); if(c.checked) view.cmpSel.push(id); renderOut(); });
   h.querySelectorAll('input[data-ly]').forEach(c=>c.onchange=()=>{ const id=c.dataset.ly; if(c.checked) view.hide.delete(id); else view.hide.add(id); applyLayers(); });
   applyLayers();
