@@ -65,6 +65,7 @@ table.cmp td{min-width:220px}
 .cmplist{display:flex;flex-direction:column;gap:2px;max-height:260px;overflow:auto;border:1px solid var(--line);padding:6px;margin-bottom:8px;font-size:12px}
 .hide-zone .ly-zone,.hide-sp .ly-sp,.hide-ct .ly-ct,.hide-ng .ly-ng{display:none}
 @media (max-width:800px){.planbox{flex-direction:column}.side{width:auto}.sbs{grid-template-columns:1fr}}
+.prog{position:fixed;right:14px;bottom:14px;background:#16191f;color:#fff;padding:7px 12px;border-radius:8px;font-size:12.5px;z-index:9;display:none}
 @media print{header,.steps,#stepsWrap,.noprint{display:none!important}body{background:#fff}.card{border:none;padding:0}.rep input.cell{background:none;border:none}}
 </style>
 </head>
@@ -529,14 +530,14 @@ const DEF_SET = {
   tol:15, step:250, minSize:500,
   slabRC:150, slabComp:125, sdSlab:26, sdSec:23, sdMain:26, sdCant:7, cantRC:5, cantSt:7,
   kRC:20, kSt:17.8, ef:1.25, tf:1.5, nRC:27.7, nComp:39.95, fcuB:45, py:355, sdPT:20, plateRatio:6, wallRatio:6, inclMax:0.25,
-  slenderBraced:15, colGroups:3, zoneOffset:1, layouts:1, sdFlat:26, vcFlat:0.6
+  slenderBraced:15, colGroups:3, zoneOffset:1, layouts:1, maxLayouts:30, maxBay:20, sdFlat:26, vcFlat:0.6
 };
 const SET_LABELS = {
   tol:'"Slightly off" tolerance (%)', step:'Size step (mm)', minSize:'Min. column size (mm)',
   slabRC:'RC slab thickness (mm)', slabComp:'Composite slab thickness (mm)', sdSlab:'Slab S/D limit', sdSec:'Secondary beam S/D (×10/L if L>10)', sdMain:'Main / transfer beam S/D (×10/L if L>10)', sdCant:'Cantilever S/D limit',
   cantRC:'RC cantilever max. span (m)', cantSt:'Steel cantilever max. span (m)',
   kRC:'RC load per floor (kPa)', kSt:'Steel WULS per floor (kPa)', ef:'Elastic factor (columns)', tf:'Transfer factor', nRC:'RC column N/Ac (fcu60, 2%)', nComp:'Composite column N/Ac', fcuB:'Beam fcu (MPa)', py:'Steel py (MPa)',
-  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', layouts:'Try long-span column layouts (1 = yes, 0 = only the full grid)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column'
+  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', layouts:'Generate column layouts (1 = yes, 0 = only the architectural grid)', maxLayouts:'Max. column layouts fully checked', maxBay:'Max. column spacing tried (m)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column'
 };
 const KINDS = [
   ['core','Core wall (rigid support)'],
@@ -686,7 +687,9 @@ function compile(W, wx, wy, lay){
   zones.forEach(z=>{ z.x1=res(z.x1,'x'); z.x2=res(z.x2,'x'); z.y1=res(z.y1,'y'); z.y2=res(z.y2,'y'); });
   walls.forEach(w=>{ w.x1=res(w.x1,'x'); w.x2=res(w.x2,'x'); w.y1=res(w.y1,'y'); w.y2=res(w.y2,'y'); });
   let sxl=xl, syl=yl;
-  if (lay&&lay.sg){ const g=lay.sg; sxl=g.x.labels; syl=g.y.labels; grids[0]={name:'M',xLabels:sxl.join(','),xSp:dpos(g.x),yLabels:syl.join(','),ySp:dpos(g.y),ox:g.x.pos[0],oy:g.y.pos[0],s1:'',s2:'',cols:true}; }
+  const gDef=(nm,g,s1,s2)=>({name:nm,xLabels:g.x.labels.join(','),xSp:dpos(g.x),yLabels:g.y.labels.join(','),ySp:dpos(g.y),ox:g.x.pos[0],oy:g.y.pos[0],s1,s2,cols:true});
+  if (lay&&lay.sg){ const g=lay.sg; sxl=g.x.labels; syl=g.y.labels; grids[0]=gDef('M',g,'',''); }
+  if (lay&&lay.band){ const b=lay.band; sxl=b.lower.x.labels; syl=b.lower.y.labels; grids[0]=gDef('M',b.lower,names[0],names[b.u-1]); grids.splice(1,0,gDef('U',b.upper,names[b.u],names[ns-1])); }
   // transfer mode: columns above a column-free zone / void continue and are transferred at the zone roof
   if (lay&&lay.tmode==='keep') zones.filter(z=>z.type==='void'||z.type==='colfree').slice().forEach(z=>{ const i=names.indexOf(z.s2); if(i>=0&&i<ns-1) zones.push({type:'keep',name:'Transfer over '+z.name,x1:z.x1,x2:z.x2,y1:z.y1,y2:z.y2,s1:names[i+1],s2:names[ns-1],head:'',svc:''}); });
   const S={title:W.title,grids,levels,zones,walls,columns:[],removed:[],specials:[],
@@ -707,72 +710,132 @@ const SCHEMES=[
   {id:'S2',mat:'st',name:'STEEL COMPOSITE BEAM AND SLAB AND TRANSFER TRUSS SYSTEM WITH COLUMN AND BRACED CORE WALL',sys:['ST','STRUSS'],must:'STRUSS'},
   {id:'S3',mat:'st',name:'STEEL COMPOSITE BEAM AND SLAB SUPPORTED BY BRACED CORE WALL AND HANGER COLUMN IN TURN SUPPORTED BY STEEL TRUSS AT ROOF LEVEL',sys:['HANG','ST'],must:'HANG'}
 ];
+const gridAt=(M,s)=>M.grids.filter(g=>g.cols).find(g=>s>=g.s1&&s<=g.s2)||M.grids[0];
 const pickSec=(list,Mreq,Ireq)=>list.slice().sort((a,b)=>a[1]-b[1]).find(r=>r[2]>=Mreq&&r[1]>=Ireq);
 const secDepth=n=>{ const m=String(n).match(/(\d+)x/); return m?+m[1]/1000:null; };
 
-function layoutsFor(W){
-  // Structural column grids generated from the constraints (independent of the architectural grid), each tried
-  // with columns stopping at restricted zones (no transfer) and with columns continuing above them (transfer).
-  const C=compile(W,null,null); const base={id:'A',sg:null,tmode:'stop'};
-  const fin=l=>{ l.gkey=l.sg?JSON.stringify([l.sg.x.pos,l.sg.y.pos]):'arch'; return l; };
-  if (C.err.length) return [fin({...base,short:'ARCHITECTURAL GRID',bays:{x:'',y:''}})];
-  const M=buildModel(C.S); if (M.err.length) return [fin({...base,short:'ARCHITECTURAL GRID',bays:{x:'',y:''}})];
-  const r=v=>Math.round(v*1000)/1000;
+/* Column layouts. Each axis: the architectural grid, the total length divided into n equal bays (bay between the
+   minimum column spacing and maxBay) with end cantilevers 0 / 2.5 / 5 m, and grids aligned to core / zone edges.
+   X x Y x {columns stop at restricted zones | columns continue and are transferred}; plus two-band layouts with a
+   different grid above a transfer level (top of a restricted zone or a plant / refuge floor).
+   Stage 1 screens geometry quickly (spacing, cantilever, spans); stage 2 fully checks the best, most varied ones. */
+function* layoutGen(W){
+  const C=compile(W,null,null); const archLay={id:'A',arch:true,sg:null,tmode:'stop',gkey:'arch',nx:0,ny:0};
+  if (C.err.length) return [archLay];
+  const M=buildModel(C.S); if (M.err.length) return [archLay];
+  const st=W.set, r=v=>Math.round(v*1000)/1000, maxBay=num(st.maxBay)||20, names=C.names, ns=names.length;
   const minSp=Math.max(0,...(W.types||[]).map(t=>(num(t.minSp)||0)+(num(t.minSp)&&t.spType==='e'?1:0)));
-  const bayTxt=pos=>pos.slice(1).map((p,i)=>f1(p-pos[i]).replace(/\.0$/,'')).join(' + ')+` = ${f1(pos.at(-1)-pos[0]).replace(/\.0$/,'')} m`;
-  const labelsFor=(pos,ap,al)=>{ const cnt={}; return pos.map(p=>{ const i=ap.findIndex(a=>Math.abs(a-p)<TOL); if(i>=0) return al[i]; let j=-1; ap.forEach((a,k)=>{ if(a<p) j=k; }); const b=j>=0?al[j]:al[0]; cnt[b]=(cnt[b]||0)+1; return b+'abcdefgh'[cnt[b]-1]; }); };
-  const axis=ax=>{ const arch=(ax==='x'?C.px.pos:C.py.pos).map(r); const lo=arch[0], hi=arch.at(-1);
-    const mand=new Set([lo,hi]), pref=new Set(); const inR=v=>v>lo-TOL&&v<hi+TOL;
-    M.zones.forEach(z=>{ const a=ax==='x'?[z.x1,z.x2]:[z.y1,z.y2]; a.filter(Number.isFinite).map(r).filter(inR).forEach(v=>(z.type==='footprint'||z.type==='core'?mand:pref).add(v)); });
-    M.walls.forEach(w=>(ax==='x'?[w.x1,w.x2]:[w.y1,w.y2]).map(r).filter(inR).forEach(v=>mand.add(v)));
-    let bl=[...mand].sort((a,b)=>a-b);
-    [...pref].sort((a,b)=>a-b).forEach(v=>{ if(bl.every(b=>Math.abs(b-v)>=minSp-1e-6)) bl.push(v); }); bl.sort((a,b)=>a-b);
-    const sets=[arch];
-    [7.5,9,10,12,15,18,20].forEach(t=>{ const out=[bl[0]]; for(let i=0;i<bl.length-1;i++){ const L=bl[i+1]-bl[i]; let n=Math.max(1,Math.round(L/t)); while(n>1&&L/n<minSp-1e-6) n--; for(let j=1;j<=n;j++) out.push(r(bl[i]+L*j/n)); }
-      if (!sets.some(sv=>sv.length===out.length&&sv.every((v,i)=>Math.abs(v-out[i])<TOL))) sets.push(out); });
-    // keep the architectural grid, the shortest-span and the longest-span alternatives
-    const alt=sets.slice(1).sort((a,b)=>a.length-b.length); const pick=[sets[0]]; if(alt.length) pick.push(alt[0]); if(alt.length>1) pick.push(alt.at(-1));
-    return pick.map(pos=>({pos,labels:labelsFor(pos,arch,ax==='x'?C.xl:C.yl),arch:pos===arch}));
+  const bays=pos=>pos.slice(1).map((p,i)=>+(p-pos[i]).toFixed(2));
+  const bayTxt=pos=>{ const b=bays(pos); const out=[]; b.forEach(v=>{ const l=out.at(-1); if(l&&Math.abs(l.v-v)<0.01) l.n++; else out.push({v,n:1}); }); return out.map(o=>(o.n>1?o.n+'@':'')+f2(o.v).replace(/\.?0+$/,'')).join(' + ')+` = ${f1(pos.at(-1)-pos[0]).replace(/\.0$/,'')} m`; };
+  const archP={x:C.px.pos.map(r),y:C.py.pos.map(r)}, archL={x:C.xl,y:C.yl};
+  const labelsFor=(pos,ax)=>{ const ap=archP[ax], al=archL[ax], cnt={}; return pos.map(p=>{ const i=ap.findIndex(a=>Math.abs(a-p)<TOL); if(i>=0) return al[i]; let j=-1; ap.forEach((a,k)=>{ if(a<p) j=k; }); const b=j>=0?al[j]:al[0]; cnt[b]=(cnt[b]||0)+1; return b+'abcdefgh'[cnt[b]-1]; }); };
+  const zAt=(z,s)=>M.zAct(z,s);
+  // candidate positions along one axis for the storeys ss
+  const axisC=(ax,ss,maxAx=8)=>{
+    const fps=M.zones.filter(z=>z.type==='footprint'&&ss.some(s=>zAt(z,s)));
+    const lo=r(Math.min(...fps.map(z=>ax==='x'?z.x1:z.y1))), hi=r(Math.max(...fps.map(z=>ax==='x'?z.x2:z.y2)));
+    const inR=v=>v>lo-TOL&&v<hi+TOL; const sets=[]; const push=(pos,kind)=>{ pos=pos.map(r); if(pos.length<2) return; const b=bays(pos); if(b.some(v=>v>maxBay+1e-6)) return; if(!sets.some(o=>o.pos.length===pos.length&&o.pos.every((v,i)=>Math.abs(v-pos[i])<TOL))) sets.push({pos,kind}); };
+    const ap=archP[ax].filter(inR); if (ap.length>1) push(ap,'arch');
+    for (const c of [0,2.5,5]){ const L=hi-lo-2*c; if(L<=0) continue; for(let n=1;n<=40;n++){ const b=L/n; if(b<minSp-1e-6) break; if(b>maxBay+1e-6) continue; push(Array.from({length:n+1},(_,i)=>lo+c+i*b),c?`cantilever ${c} m`:'equal bays'); } }
+    // aligned to footprint / core / restricted-zone edges
+    const mand=new Set([lo,hi]), pref=new Set();
+    M.zones.filter(z=>ss.some(s=>zAt(z,s))).forEach(z=>{ const a=ax==='x'?[z.x1,z.x2]:[z.y1,z.y2]; a.map(r).filter(inR).forEach(v=>(z.type==='footprint'||z.type==='core'?mand:pref).add(v)); });
+    let bl=[...mand].sort((a,b)=>a-b); [...pref].sort((a,b)=>a-b).forEach(v=>{ if(bl.every(b=>Math.abs(b-v)>=minSp-1e-6)) bl.push(v); }); bl.sort((a,b)=>a-b);
+    [6,7.5,8,8.4,9,10,11,12,13.5,15,16.5,18,20].forEach(t=>{ const out=[bl[0]]; for(let i=0;i<bl.length-1;i++){ const L=bl[i+1]-bl[i]; let n=Math.max(1,Math.round(L/t)); while(n>1&&L/n<minSp-1e-6) n--; for(let j=1;j<=n;j++) out.push(bl[i]+L*j/n); } push(out,'aligned to core / zone edges'); });
+    // keep a varied short list: one per (number of bays, longest bay), preferring the simplest kind
+    const pri={arch:0,'equal bays':0,'aligned to core / zone edges':1}; const seen=new Set(), keep=[];
+    const add=(o,cap)=>{ const k=(o.pos.length)+'|'+Math.round(Math.max(...bays(o.pos))); if(!seen.has(k)&&keep.length<cap){ seen.add(k); keep.push(o); } };
+    sets.filter(o=>!o.kind.startsWith('cantilever')).sort((a,b)=>(pri[a.kind]??3)-(pri[b.kind]??3)).forEach(o=>add(o,maxAx-2));
+    sets.filter(o=>o.kind.startsWith('cantilever')).forEach(o=>add(o,maxAx));
+    return keep.map(o=>{ const c=r(o.pos[0]-lo); const ct=c>0.01?`${f1(c).replace(/\.0$/,'')} cant. + `:''; const t=bayTxt(o.pos); return {...o,labels:labelsFor(o.pos,ax),txt:ct?ct+t.replace(/ = .*$/,'')+` + ${f1(c).replace(/\.0$/,'')} cant. = ${f1(hi-lo).replace(/\.0$/,'')} m`:t,maxB:Math.max(...bays(o.pos)),cant:c}; });
   };
-  const X=axis('x'), Y=axis('y');
-  const needT=M.col.some(row=>row.some(st=>st==='nosupport'));
-  const out=[]; let n=0; const ID='ABCDEFGHJKLMNPQRSTUVWXYZ';
-  X.forEach(gx=>Y.forEach(gy=>['stop','keep'].forEach(tm=>{ if(tm==='keep'&&!needT) return;
-    const arch=gx.arch&&gy.arch; const sg=arch?null:{x:gx,y:gy};
-    out.push(fin({id:ID[n++]||'Z'+n,sg,tmode:tm,bays:{x:bayTxt(gx.pos),y:bayTxt(gy.pos)},
-      short:`${arch?'ARCHITECTURAL GRID':'STRUCTURAL GRID'} X ${bayTxt(gx.pos)}, Y ${bayTxt(gy.pos)}; ${tm==='keep'?'COLUMNS ABOVE RESTRICTED ZONES TRANSFERRED':'COLUMNS STOP AT RESTRICTED ZONES (NO TRANSFER)'}`})); })));
-  return out;
+  // stage-1 screen: column spacing per floor type, edge cantilever, member spans
+  const screen=lay=>{ const Cl=compile(W,null,null,lay); if(Cl.err.length) return null; const Ml=buildModel(Cl.S); if(Ml.err.length) return null;
+    let worstSp=Infinity;
+    for (let s=0;s<ns;s++){ const t=W.types[Cl.typeOf[s]]||{}; const need=num(t.minSp); const cols=Ml.pts.filter(p=>Ml.col[s][p.id]==='col'||Ml.col[s][p.id]==='edge');
+      if (need){ const lines=new Map(); cols.forEach(p=>{ [['x',p.y,p.x],['y',p.x,p.y]].forEach(([a,k,v])=>{ const key=a+Math.round(k*20); if(!lines.has(key)) lines.set(key,[]); lines.get(key).push(v); }); });
+        for (const arr of lines.values()){ arr.sort((a,b)=>a-b); for(let i=0;i<arr.length-1;i++){ const d=arr[i+1]-arr[i]-(t.spType==='e'?0.75:0); worstSp=Math.min(worstSp,d/need); if(d<need-1e-6) return null; } } }
+      const fp=Ml.zones.filter(z=>z.type==='footprint'&&Ml.zAct(z,s)); if(!cols.length) continue;
+      for (const z of fp){ const xs=cols.map(p=>p.x), ys=cols.map(p=>p.y); const c=Math.max(Math.min(...xs)-z.x1,z.x2-Math.max(...xs),Math.min(...ys)-z.y1,z.y2-Math.max(...ys)); if(c>7+1e-6) return null; } }
+    const spans=Ml.members.map(m=>m.span); const mx=spans.length?Math.max(...spans):0; if(mx>30) return null;
+    const nCol=Ml.pts.filter(p=>Ml.col.some(row=>row[p.id]==='col'||row[p.id]==='edge')).length;
+    // uniform column spacing is preferred: penalise (longest - shortest bay) / mean bay on every grid used
+    const unif=pos=>{ const b=bays(pos); const m=b.reduce((a,c)=>a+c,0)/b.length; return b.length>1?(Math.max(...b)-Math.min(...b))/m:0; };
+    const gs=lay.band?[lay.band.lower.x,lay.band.lower.y,lay.band.upper.x,lay.band.upper.y]:lay.sg?[lay.sg.x,lay.sg.y]:[]; const u=gs.reduce((a,g)=>a+unif(g.pos),0);
+    return {score:u*10+mx*0.2+Ml.members.length*0.05+nCol*0.02,u,mx,nMem:Ml.members.length,nCol}; };
+  const all=ns?[...Array(ns).keys()]:[];
+  const X=axisC('x',all), Y=axisC('y',all);
+  const needT=M.col.some(row=>row.some(v=>v==='nosupport'));
+  const tms=needT?['stop','keep']:['stop'];
+  const cands=[]; const total=X.length*Y.length*tms.length; let done=0;
+  for (const gx of X) for (const gy of Y) for (const tm of tms){
+    const arch=gx.kind==='arch'&&gy.kind==='arch';
+    const lay={arch,sg:arch?null:{x:gx,y:gy},tmode:tm,nx:gx.pos.length-1,ny:gy.pos.length-1,gx,gy,gkey:JSON.stringify([gx.pos,gy.pos])};
+    const sc=screen(lay); done++; if(done%8===0) yield {phase:'Screening column layouts',i:done,n:total};
+    if (sc||arch) cands.push({...lay,scr:sc||{score:99}});
+  }
+  // stage-2 selection: architectural grid always; then the best layout of each (bays X x bays Y x transfer) family
+  const maxL=num(st.maxLayouts)||40; const pick=[]; const fam=new Map();
+  cands.filter(c=>c.arch).forEach(c=>pick.push(c));
+  cands.filter(c=>!c.arch).sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ const k=`${c.nx}x${c.ny}|${c.tmode}`; if(!fam.has(k)) fam.set(k,c); });
+  [...fam.values()].sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ if(pick.length<maxL) pick.push(c); });
+  // two-band layouts: a different grid above a transfer level
+  const gIdx=Math.max(0,names.findIndex(n=>normF(n)===normF(W.floors.ground||'G/F')));
+  const splits=new Set(); M.zones.filter(z=>z.type==='void'||z.type==='colfree').forEach(z=>{ if(z.s2+1<ns&&z.s2+1>gIdx) splits.add(z.s2+1); });
+  C.lv.forEach((l,i)=>{ if(l.free&&i+1<ns&&i+1>gIdx) splits.add(i+1); });
+  const lowers=pick.filter(c=>c.tmode==='stop').slice(0,2); const bandC=[]; let bd=0;
+  // the upper band must carry at least two storeys, otherwise a separate grid is not worth a transfer
+  for (const u of [...splits].filter(u=>ns-u>=2).sort((a,b)=>a-b)){ const up=[]; for(let s=u;s<ns;s++) up.push(s); const UX=axisC('x',up,5), UY=axisC('y',up,5);
+    for (const lo of lowers){ const lg={x:lo.gx||{pos:archP.x,labels:archL.x},y:lo.gy||{pos:archP.y,labels:archL.y}};
+      const sub=(a,b)=>a.every(v=>b.some(w=>Math.abs(v-w)<TOL));
+      for (const ux of UX) for (const uy of UY){ if(sub(ux.pos,lg.x.pos)&&sub(uy.pos,lg.y.pos)) continue;
+        const lay={band:{u,lower:lg,upper:{x:ux,y:uy}},tmode:'stop',nx:lo.nx,ny:lo.ny,gx:lo.gx,gy:lo.gy,ux,uy,gkey:JSON.stringify([lg.x.pos,lg.y.pos,u,ux.pos,uy.pos])};
+        const sc=screen(lay); bd++; if(bd%8===0) yield {phase:'Screening two-band layouts',i:bd,n:bd+1};
+        if (sc) bandC.push({...lay,scr:sc}); } } }
+  const bf=new Map(); bandC.sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ const k=`${c.band.u}|${c.ux.pos.length}x${c.uy.pos.length}`; if(!bf.has(k)) bf.set(k,c); });
+  [...bf.values()].slice(0,Math.max(4,Math.round(maxL/4))).forEach(c=>pick.push(c));
+  pick.forEach((l,i)=>{ l.id=l.arch&&l.tmode==='stop'?'A':l.arch?'B':'L'+(i+1);
+    const gx=l.gx||{txt:bayTxt(archP.x)}, gy=l.gy||{txt:bayTxt(archP.y)};
+    l.bays={x:gx.txt||bayTxt(archP.x),y:gy.txt||bayTxt(archP.y)};
+    l.short=`${l.arch?'ARCHITECTURAL GRID':'GRID'} X ${l.bays.x}; Y ${l.bays.y}${l.band?`; FROM ${names[l.band.u]} UP: X ${l.ux.txt}; Y ${l.uy.txt} (TRANSFER AT ${names[l.band.u]})`:''}; ${l.band?'TWO-BAND GRID':l.tmode==='keep'?'COLUMNS OVER RESTRICTED ZONES TRANSFERRED':'COLUMNS STOP AT RESTRICTED ZONES (NO TRANSFER)'}`; });
+  return pick;
 }
-function evaluate(W){
-  const out=[]; const lays=layoutsFor(W);
-  for (const lay of lays) for (const sc0 of SCHEMES){
-    const sc={...sc0,base:sc0.id,id:sc0.id+(lay.id==='A'?'':'-'+lay.id),lay};
-    // iterate geometry: column widths influence grid positions when spacing codes are used
-    let wx=null, wy=null, C=null, M=null, R=null;
-    for (let it=0; it<3; it++){
-      C=compile(W,wx,wy,lay); if (C.err.length) return {err:C.err};
-      M=buildModel(C.S); if (M.err.length) return {err:M.err};
-      R=assess(W,sc,C,M); if (lay.sg) break;
-      const nwx=C.xl.map((l,i)=>R.lineW.x[i]||0), nwy=C.yl.map((l,i)=>R.lineW.y[i]||0);
-      if (wx&&nwx.every((v,i)=>v===wx[i])&&nwy.every((v,i)=>v===wy[i])) break;
-      wx=nwx; wy=nwy;
+function* evalGen(W){
+  const lg=layoutGen(W); let x; while(!(x=lg.next()).done) yield x.value; const lays=x.value;
+  const out=[]; let i=0;
+  for (const lay of lays){
+    let shared=null;
+    if (!lay.arch){ const C=compile(W,null,null,lay); if(C.err.length) return {err:C.err}; const M=buildModel(C.S); if(M.err.length) return {err:M.err}; shared={C,M}; }
+    for (const sc0 of SCHEMES){
+      const sc={...sc0,base:sc0.id,id:sc0.id+(lay.id==='A'?'':'-'+lay.id),lay};
+      let C=null, M=null, R=null;
+      if (shared){ C=shared.C; M=shared.M; R=assess(W,sc,C,M); }
+      else { let wx=null, wy=null; // iterate: column widths influence grid positions when spacing codes are used
+        for (let it=0; it<3; it++){ C=compile(W,wx,wy,lay); if (C.err.length) return {err:C.err}; M=buildModel(C.S); if (M.err.length) return {err:M.err}; R=assess(W,sc,C,M);
+          const nwx=C.xl.map((l,i)=>R.lineW.x[i]||0), nwy=C.yl.map((l,i)=>R.lineW.y[i]||0); if (wx&&nwx.every((v,i)=>v===wx[i])&&nwy.every((v,i)=>v===wy[i])) break; wx=nwx; wy=nwy; } }
+      out.push({sc,C,M,R,lay});
     }
-    out.push({sc,C,M,R,lay});
+    i++; yield {phase:'Checking schemes',i,n:lays.length};
   }
   return {list:out,lays};
 }
+function evaluate(W){ const g=evalGen(W); let x; while(!(x=g.next()).done); return x.value; }
 const SYS_CAT={RC:'GIRDER',ST:'GIRDER',PT:'GIRDER',RCWALL:'STOREY-DEEP',STRUSS:'STOREY-DEEP',PLATE:'PLATE',INCL:'INCLINED COLUMN',HANG:'HANGER'};
+function layDiff(a,b){ if(a.gkey===b.gkey) return false; if(!!a.band!==!!b.band) return true; if(a.nx!==b.nx||a.ny!==b.ny) return true;
+  const mb=l=>[l.gx?l.gx.maxB:10,l.gy?l.gy.maxB:10]; const A=mb(a), B=mb(b); if(Math.abs(A[0]-B[0])>=1.5||Math.abs(A[1]-B[1])>=1.5) return true;
+  if (a.band&&b.band&&(a.band.u!==b.band.u||a.ux.pos.length!==b.ux.pos.length||a.uy.pos.length!==b.uy.pos.length)) return true; return false; }
 function sigOf(e){ const tr=[...new Set([...e.R.used].map(u=>SYS_CAT[u]).filter(Boolean))].sort(); return {lay:e.lay.gkey,tm:e.R.checks.some(c=>c.cat==='Transfer'||c.cat==='Transfer plate'||c.cat==='Inclined column'||c.cat==='Hanger + truss')?'TRANSFER':'NO TRANSFER',floor:e.sc.floor==='flat'?'FLAT SLAB':'BEAM AND SLAB',tr:tr.join(' + ')||'NONE'}; }
 // strong = column layout, floor system, or a different transfer principle (plate / hanger / inclined column);
 // girder vs storey-deep girder / truss alone is only a member-type change (weak)
 const major=t=>t.split(' + ').map(x=>x==='STOREY-DEEP'?'GIRDER':x).filter((v,i,a)=>a.indexOf(v)===i).join(' + ');
-function distinctBy(a,b){ const A=sigOf(a), B=sigOf(b), d=[]; if(A.lay!==B.lay) d.push('column spacing / layout (framing plan)'); if(A.tm!==B.tm) d.push('transfer vs no transfer (load path)'); if(major(A.tr)!==major(B.tr)) d.push('transfer principle (load path)'); return d; }
-function weakDiff(a,b){ const A=sigOf(a), B=sigOf(b); return !distinctBy(a,b).length&&A.tr!==B.tr; }
+function distinctBy(a,b){ const A=sigOf(a), B=sigOf(b), d=[]; if(layDiff(a.lay,b.lay)) d.push('column spacing / layout (framing plan)'); if(A.tm!==B.tm) d.push('transfer vs no transfer (load path)'); if(major(A.tr)!==major(B.tr)) d.push('transfer principle (load path)'); return d; }
+function weakDiff(a,b){ const A=sigOf(a), B=sigOf(b); return !distinctBy(a,b).length&&(A.tr!==B.tr||A.lay!==B.lay); }
 const feasibleE=e=>e.R.applicable&&e.R.worst!=='fail';
 function recPair(L){
-  const fe=L.filter(feasibleE).sort((a,b)=>V_RANK[a.R.worst]-V_RANK[b.R.worst]||(a.lay.id>b.lay.id?1:a.lay.id<b.lay.id?-1:0)||a.R.checks.filter(c=>c.v==='marg').length-b.R.checks.filter(c=>c.v==='marg').length);
+  const fe=L.filter(feasibleE).sort((a,b)=>V_RANK[a.R.worst]-V_RANK[b.R.worst]||(a.lay.arch?0:1)-(b.lay.arch?0:1)||a.R.checks.filter(c=>c.v==='marg').length-b.R.checks.filter(c=>c.v==='marg').length);
   if (!fe.length) return null; const a=fe[0];
-  const cands=fe.slice(1).map(b=>({b,d:distinctBy(a,b)})).filter(x=>x.d.length).sort((x,y)=>V_RANK[x.b.R.worst]-V_RANK[y.b.R.worst]||(y.d.length-x.d.length)||(y.d.some(t=>t.startsWith('column'))-x.d.some(t=>t.startsWith('column')))||(y.d.length-x.d.length)||((x.b.sc.mat!==a.sc.mat)?-1:0)-((y.b.sc.mat!==a.sc.mat)?-1:0));
+  const wt=x=>x.d.length+(x.d.some(t=>t.startsWith('column'))?2:0)-((x.b.lay.scr&&x.b.lay.scr.u)||0);
+  const cands=fe.slice(1).map(b=>({b,d:distinctBy(a,b)})).filter(x=>x.d.length).sort((x,y)=>V_RANK[x.b.R.worst]-V_RANK[y.b.R.worst]||(wt(y)-wt(x))||(y.d.length-x.d.length)||((x.b.sc.mat!==a.sc.mat)?-1:0)-((y.b.sc.mat!==a.sc.mat)?-1:0));
   // keep one partner per signature for the "other options" list
   const seen=new Set(), others=[]; cands.forEach(x=>{ const sg=sigOf(x.b), k=sg.lay+"|"+sg.tm+"|"+sg.floor+"|"+major(sg.tr); if(!seen.has(k)){ seen.add(k); others.push(x); } });
   return {a,b:cands[0]?cands[0].b:null,d:cands[0]?cands[0].d:[],others:others.slice(1,5)};
@@ -845,7 +908,7 @@ function assess(W,sc,C,M){
   (W.types||[]).forEach((t,ti)=>{
     const ks=[]; C.typeOf.forEach((x,s)=>{ if(x===ti) ks.push(s+1); }); if(!ks.length) return;
     const zone=Math.min(...ks.map(k=>zoneAt(k)));
-    const gx=M.grids[0].gx, gy=M.grids[0].gy;
+    const gT=gridAt(M,ks[0]-1), gx=gT.gx, gy=gT.gy;
     const sxs=gx.sp, sys=gy.sp; const bx=Math.max(...sxs), byy=Math.max(...sys);
     const longD=Math.max(bx,byy), shortD=Math.min(bx,byy);
     const tSlab=(sc.mat==='rc'?st.slabRC:st.slabComp)/1000, nSec=Math.max(1,Math.ceil(longD/(st.sdSlab*tSlab)-1e-9)), ls=longD/nSec;
@@ -892,16 +955,16 @@ function assess(W,sc,C,M){
   });
   // column types: C1 interior, C2 edge / corner, C3 supporting transfer / long-span members (setting colGroups)
   const supportLabels=new Set(M.members.flatMap(m=>m.ends));
-  const groups={};
+  const groups={}, ctype={};
   pts.forEach(p=>{ const cs=(colSize[p.id]||[]).filter(Boolean); if(!cs.length) return;
     let s0=-1, mxl=-1; colSize[p.id].forEach((c,s)=>{ if(c&&c.load>mxl){ mxl=c.load; s0=s; } });
     const [a,b]=neighbours(s0,p,'x'), [c,d]=neighbours(s0,p,'y'); const edge=[a,b,c,d].some(v=>v===null);
     const mode=Math.round(num(st.colGroups)??3);
     const g=mode===0?'C'+p.label:mode===1?'C1':(mode===3&&supportLabels.has(p.label))?'C3':edge?'C2':'C1';
-    p.ctype=g; const G=groups[g]||(groups[g]={id:g,side:0,crit:null,count:0,edge,desc:g==='C1'&&mode!==1?'INTERIOR':g==='C2'?'EDGE / CORNER':g==='C3'?'SUPPORTING TRANSFER / LONG-SPAN':''});
+    ctype[p.id]=g; const G=groups[g]||(groups[g]={id:g,side:0,crit:null,count:0,edge,desc:g==='C1'&&mode!==1?'INTERIOR':g==='C2'?'EDGE / CORNER':g==='C3'?'SUPPORTING TRANSFER / LONG-SPAN':''});
     G.count++; colSize[p.id].forEach((c,s)=>{ if(!c) return; G.side=Math.max(G.side,c.side); if(!G.crit||c.load>G.crit.load) G.crit={...c,p,s}; });
   });
-  pts.forEach(p=>{ const G=groups[p.ctype]; if(!G) return; colSize[p.id].forEach(c=>{ if(c) c.side=G.side; });
+  pts.forEach(p=>{ const G=groups[ctype[p.id]]; if(!G) return; colSize[p.id].forEach(c=>{ if(c) c.side=G.side; });
     const ix=gx.pos.findIndex(v=>Math.abs(v-p.x)<TOL), iy=gy.pos.findIndex(v=>Math.abs(v-p.y)<TOL);
     if (ix>=0) lineW.x[ix]=Math.max(lineW.x[ix]||0,G.side); if (iy>=0) lineW.y[iy]=Math.max(lineW.y[iy]||0,G.side); });
   let crit=null;
@@ -963,7 +1026,7 @@ function assess(W,sc,C,M){
       add({cat:'Cantilever',where:`${t.name} (${side} edge)`,item:`CANTILEVER BEAM CB ${f0(D*1000)} DEEP`,calc:`S/D ≤ ${st.sdCant} → D ≥ ${f0(len/st.sdCant*1000)}; zone ${f0(zone*1000)}`,need:D,have:zone,ratio:D/zone,fix:'Wider beam / back-span tie-down'});
     }); });
   const worst=checks.reduce((w,c)=>V_RANK[c.v]>V_RANK[w]?c.v:w,'pass');
-  return {checks,ch,used,applicable,typ,colSize,offsets,lineW,cants,worst,crit,groups};
+  return {checks,ch,used,applicable,typ,colSize,offsets,lineW,cants,worst,crit,groups,ctype};
 }
 
 /* ---------- Output helpers ---------- */
@@ -994,10 +1057,10 @@ function planSVG2(E,k,grp){
   g+=`<defs><pattern id="${id}" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#d62828" stroke-width="1.2"/></pattern></defs>`;
   M.cells.forEach(c=>{ if(M.slabAt(k,c.cx,c.cy)) g+=`<rect x="${X(c.x1)}" y="${Y(c.y1)}" width="${(c.x2-c.x1)*S}" height="${(c.y2-c.y1)*S}" fill="#f7f8fa"/>`; });
   // restricted zones in red hatch
-  M.zones.forEach(z=>{ const a=(k-1>=0&&M.zAct(z,k-1))||(k<=nL-2&&M.zAct(z,k)); if(!a||z.type==='footprint'||z.type==='core'||z.type==='outside') return;
-    g+=`<g class="ly-zone"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#${id})" fill-opacity=".55" stroke="#d62828" stroke-width="1.2" stroke-dasharray="5 3"/><text x="${X((z.x1+z.x2)/2)}" y="${Y((z.y1+z.y2)/2)+16}" text-anchor="middle" font-size="10" font-weight="700" fill="#b71c1c" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())}</text></g>`; });
+  let zl=0; M.zones.forEach(z=>{ const a=(k-1>=0&&M.zAct(z,k-1))||(k<=nL-2&&M.zAct(z,k)); if(!a||z.type==='footprint'||z.type==='core'||z.type==='outside'||z.type==='keep') return; zl++;
+    g+=`<g class="ly-zone"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#${id})" fill-opacity=".55" stroke="#d62828" stroke-width="1.2" stroke-dasharray="5 3"/><text x="${X((z.x1+z.x2)/2)}" y="${Y((z.y1+z.y2)/2)+16+(zl-1)*13}" text-anchor="middle" font-size="10" font-weight="700" fill="#b71c1c" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())}</text></g>`; });
   // grid
-  const gr=M.grids[0];
+  const gr=gridAt(M,Math.max(0,k-1));
   gr.gx.pos.forEach((p,i)=>{ g+=`<line x1="${X(p)}" y1="${pad-24}" x2="${X(p)}" y2="${H-pad+8}" stroke="#9aa" stroke-width=".6" stroke-dasharray="9 3 2 3"/><circle cx="${X(p)}" cy="${pad-32}" r="9" fill="#fff" stroke="#333"/><text x="${X(p)}" y="${pad-28}" text-anchor="middle" font-size="10">${esc(gr.gx.labels[i])}</text>`;
     const n=gr.gx.pos[i+1]; if(n!==undefined) g+=`<text x="${(X(p)+X(n))/2}" y="${pad-13}" text-anchor="middle" font-size="9">${f0((n-p)*1000)}</text>`; });
   gr.gy.pos.forEach((p,j)=>{ g+=`<line x1="${pad-24}" y1="${Y(p)}" x2="${Wd-pad+8}" y2="${Y(p)}" stroke="#9aa" stroke-width=".6" stroke-dasharray="9 3 2 3"/><circle cx="${pad-32}" cy="${Y(p)}" r="9" fill="#fff" stroke="#333"/><text x="${pad-32}" y="${Y(p)+4}" text-anchor="middle" font-size="10">${esc(gr.gy.labels[j])}</text>`;
@@ -1046,7 +1109,7 @@ function planSVG2(E,k,grp){
     if (a&&b) g+=`<rect x="${x-side/2}" y="${y-side/2}" width="${side}" height="${side}" fill="#fff" stroke="#111" stroke-width="1.3"/><path d="M${x-side/2} ${y-side/2}L${x+side/2} ${y+side/2}M${x+side/2} ${y-side/2}L${x-side/2} ${y+side/2}" stroke="#111"/>`;
     else if (b) g+=`<rect x="${x-side/2}" y="${y-side/2}" width="${side}" height="${side}" fill="#fff" stroke="#111" stroke-dasharray="2.5 1.5"/>`;
     else g+=`<rect x="${x-side/2}" y="${y-side/2}" width="${side}" height="${side}" fill="url(#${id})" stroke="#111"/>`;
-    if (p.ctype) g+=`<text class="ly-ct" x="${x+side/2+2}" y="${y-side/2-1}" font-size="7.5" fill="#444">${p.ctype}</text>`;
+    if (R.ctype[p.id]) g+=`<text class="ly-ct" x="${x+side/2+2}" y="${y-side/2-1}" font-size="7.5" fill="#444">${R.ctype[p.id]}</text>`;
     if (clashPts.has(p.id)){ g+=`<rect x="${x-side/2-3}" y="${y-side/2-3}" width="${side+6}" height="${side+6}" fill="none" stroke="#d62828" stroke-width="2.5"/>`; ngTxt+=`<text x="${x}" y="${y+side/2+11}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#d62828" stroke="#fff" stroke-width="3" paint-order="stroke">✗ IN ZONE</text>`; }
   });
   // actual column spacing along each grid line (storey below this slab)
@@ -1137,9 +1200,15 @@ function floorPreview(){
 }
 let tmr=null;
 function changedW(){ saveW(); clearTimeout(tmr); tmr=setTimeout(()=>{ if(view.step===1) floorPreview(); run(); },400); }
+let runTok=0;
 function run(){
-  try { RES=evaluate(W); } catch(e){ RES={err:['Calculation error: '+e.message]}; console.error(e); }
-  renderOut();
+  const tok=++runTok; const g=evalGen(W);
+  const prog=x=>{ let el=$('#prog'); if(!el){ el=document.createElement('div'); el.id='prog'; el.className='prog noprint'; document.body.appendChild(el); } el.textContent=x?`${x.phase} … ${x.i} / ${x.n}`:''; el.style.display=x?'block':'none'; };
+  const step=()=>{ if(tok!==runTok) return; const t0=performance.now(); let x;
+    try { do { x=g.next(); } while(!x.done&&performance.now()-t0<60); } catch(e){ console.error(e); RES={err:['Calculation error: '+e.message]}; prog(null); renderOut(); return; }
+    if (!x.done){ prog(x.value); setTimeout(step,0); return; }
+    prog(null); RES=x.value; if(RES.list&&view.scheme&&!RES.list.some(e=>e.sc.id===view.scheme)) view.scheme=null; renderOut(); };
+  step();
 }
 function planLevels(E,grp){ const out=[]; for(let k=grp.k1;k<=grp.k2;k++) out.push(k); return out; }
 function planChecks(E,grp){
@@ -1189,7 +1258,7 @@ function prosCons(e){
   if (e.sc.mat==='rc'){ P.push('Low material cost, local labour familiar','Inherent fire resistance, robust and durable','Good stiffness against wind'); C.push('Heavy self-weight → larger foundation','Formwork and curing → longer programme'); }
   else { P.push('Fast erection, prefabricated off site','Light weight → smaller columns and foundation','Long spans with shallow sections'); C.push('Higher material cost','Fire and corrosion protection required','Specialist fabrication / site welding control'); }
   if (sg.floor==='FLAT SLAB'){ P.push('No downstand beams → minimum structural depth, free MEP routing','Simple flat formwork'); C.push('Punching shear at columns (drops / links)','Thicker, heavier slab'); }
-  const mb=Math.max(...e.M.grids[0].gx.sp,...e.M.grids[0].gy.sp); if (mb>=12){ P.push(`Long spans (max. ${f1(mb)} m) → fewer columns, flexible floor space`); C.push('Deeper / heavier beams, larger column loads'); } else { P.push(`Short spans (max. ${f1(mb)} m) → shallow, economical beams`); C.push('More columns on the floor'); }
+  const mb=Math.max(...e.M.grids.filter(g=>g.cols).flatMap(g=>[...g.gx.sp,...g.gy.sp])); if (mb>=12){ P.push(`Long spans (max. ${f1(mb)} m) → fewer columns, flexible floor space`); C.push('Deeper / heavier beams, larger column loads'); } else { P.push(`Short spans (max. ${f1(mb)} m) → shallow, economical beams`); C.push('More columns on the floor'); }
   if (sg.tm==='TRANSFER'){ P.push('Columns above continue the regular grid; restricted zone kept clear by transfer'); C.push('Heavy transfer member, construction sequence / propping'); } else { P.push('No transfer structure — direct load path'); C.push('Long-span members needed at every floor over the restricted zone'); }
   if (sg.tr.includes('STOREY-DEEP')){ P.push('Transfer within plant / refuge floor depth — no headroom loss'); C.push('Openings in storey-deep members restricted'); }
   if (sg.tr.includes('PLATE')){ P.push('Plate accommodates any column arrangement above'); C.push('Very heavy, large concrete pour, heat of hydration'); }
@@ -1244,7 +1313,7 @@ function compareHTML(L){
   return h;
 }
 function renderOut(){
-  const h=$('#out');
+  const h=$('#out'); if (!RES) return;
   if (RES.err){ h.innerHTML=`<div class="card">${RES.err.map(e=>`<div class="err">${esc(e)}</div>`).join('')}</div>`; return; }
   const L=RES.list; view.tab=view.tab||'schemes';
   let html=`<div class="outtabs noprint">${[['appraisal','1. Design appraisal'],['schemes','2. Schemes'],['compare','3. Compare two schemes']].map(([k,l])=>`<button data-tab="${k}" class="${view.tab===k?'on':''}">${l}</button>`).join('')}</div>`;
@@ -1257,7 +1326,7 @@ function renderOut(){
       const res=!e.R.applicable?'<span class="na">— NOT APPLICABLE</span>':`${V_ICON[e.R.worst]} ${V_TXT[e.R.worst]}`;
       return `<tr data-id="${e.sc.id}" class="${view.scheme===e.sc.id?'sel':''} ${!e.R.applicable?'dim':''}"><td>${e.sc.id}</td><td>${esc(e.sc.name)}${e.sc.note?`<div class="note">${esc(e.sc.note)}</div>`:''}</td><td>${e.lay.id}</td><td style="white-space:nowrap">${res}</td><td>${!e.R.applicable?esc(naReason(e)):worst.map(c=>`${esc(c.item)} — ${esc(c.where)}: ${esc(c.calc)}`).join('<br>')||'—'}</td><td style="white-space:nowrap">${cols.map(c=>esc(c.item.replace('COLUMN ',''))).join('<br>')}</td></tr>`; };
     const app=order.filter(e=>e.R.applicable&&e.R.worst!=='fail'), bad=order.filter(e=>e.R.applicable&&e.R.worst==='fail'), na=order.filter(e=>!e.R.applicable);
-    html+=`<div class="card"><h2>Column layouts tried (${RES.lays.length})</h2><table class="mini"><tr><th></th><th>Grid X (bays)</th><th>Grid Y (bays)</th><th>Columns over restricted zones</th><th>Viable schemes</th></tr>${RES.lays.map(l=>{ const es=L.filter(e=>e.lay===l&&feasibleE(e)); return `<tr><td><b>${l.id}</b></td><td>${esc(l.bays.x)}${l.sg?'':' (as given)'}</td><td>${esc(l.bays.y)}</td><td>${l.tmode==='keep'?'CONTINUE → TRANSFERRED':'STOP (NO TRANSFER)'}</td><td>${es.map(e=>`<a href="#" data-go="${e.sc.id}">${e.sc.id}</a> ${V_ICON[e.R.worst]}`).join(', ')||'<span class="ng">none</span>'}</td></tr>`; }).join('')}</table></div>`;
+    html+=`<div class="card"><h2>Column layouts checked (${RES.lays.length})</h2><div class="hint">Generated from the building length, the minimum column spacing, end cantilevers and the core / restricted-zone edges, then screened (spacing, cantilever, spans). Only the most varied layouts are fully checked (setting “Max. column layouts”).</div><details ${view.layOpen?'open':''} id="layDet"><summary>Show the layout list</summary><table class="mini"><tr><th></th><th>Grid X (bays)</th><th>Grid Y (bays)</th><th>Above transfer level</th><th>Columns over restricted zones</th><th>Viable schemes</th></tr>${RES.lays.map(l=>{ const es=L.filter(e=>e.lay===l&&feasibleE(e)); return `<tr><td><b>${l.id}</b></td><td>${esc(l.bays.x)}${l.arch?' (as given)':''}</td><td>${esc(l.bays.y)}</td><td>${l.band?`from ${esc(L[0].C.names[l.band.u])}: X ${esc(l.ux.txt)}; Y ${esc(l.uy.txt)}`:'—'}</td><td>${l.band?'TWO-BAND (TRANSFER)':l.tmode==='keep'?'CONTINUE → TRANSFERRED':'STOP (NO TRANSFER)'}</td><td>${es.map(e=>`<a href="#" data-go="${e.sc.id}">${e.sc.base}</a> ${V_ICON[e.R.worst]}`).join(', ')||'<span class="ng">none</span>'}</td></tr>`; }).join('')}</table></details></div>`;
     html+=`<div class="card"><h2>Scheme catalogue (all schemes)</h2><div class="hint">✅ pass &nbsp; ⚠️ slightly off (within ${W.set.tol}%, adjust sizes) &nbsp; ❌ not feasible &nbsp; — not applicable. Layouts: see table above. Click a scheme to see its framing plans.</div><table class="mini cat"><tr><th></th><th>Scheme</th><th>Layout</th><th>Result</th><th>Governing issue / reason</th><th>Column types</th></tr>
     ${app.map(rowH).join('')}${bad.length?`<tr><td colspan="6" class="na"><b>Not feasible (${bad.length})</b> — shown with the reason:</td></tr>`+bad.map(rowH).join(''):''}${na.length?`<tr><td colspan="6" class="na"><b>Not applicable (${na.length})</b> — the system is not needed in this building:</td></tr>`+na.map(rowH).join(''):''}</table></div>`;
     const E=L.find(e=>e.sc.id===view.scheme)||order[0]; view.scheme=E.sc.id;
@@ -1268,6 +1337,7 @@ function renderOut(){
 }
 function bindOut(){
   const h=$('#out');
+  const ld=$('#layDet'); if(ld) ld.ontoggle=()=>{ view.layOpen=ld.open; };
   h.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ view.tab=b.dataset.tab; renderOut(); });
   h.querySelectorAll('.cat tr[data-id]').forEach(tr=>tr.onclick=()=>{ view.scheme=tr.dataset.id; renderOut(); });
   h.querySelectorAll('[data-go]').forEach(a=>a.onclick=ev=>{ ev.preventDefault(); view.scheme=a.dataset.go; view.tab='schemes'; renderOut(); });
