@@ -845,6 +845,25 @@ function* evalGen(W){
     }
     i++; yield {phase:'Checking schemes',i,n:lays.length};
   }
+  // a transfer or a change of column grid must be needed: if the same material still works without it, it is meaningless
+  const names=out.length?out[0].C.names:[]; const cache=new Map();
+  const viableAlt=(alt,mat)=>{ const key=JSON.stringify([alt.sg?[alt.sg.x.pos,alt.sg.y.pos]:'arch',alt.bands?alt.bands.map(b=>[b.from,b.g.x.pos,b.g.y.pos]):0,alt.tmode,alt.from??null,mat]);
+    if (cache.has(key)) return cache.get(key); let ok=false;
+    if (!alt.sg&&!alt.bands&&alt.tmode==='stop') ok=out.some(e=>e.lay.id==='A'&&e.sc.mat===mat&&feasibleE(e));
+    else { const C=compile(W,null,null,alt); if(!C.err.length){ const M=buildModel(C.S); if(!M.err.length) ok=SCHEMES.filter(s0=>s0.mat===mat).some(s0=>{ const R=assess(W,{...s0,lay:alt},C,M); return R.applicable&&R.worst!=='fail'; }); } }
+    cache.set(key,ok); return ok; };
+  const altsOf=lay=>{ const A=[]; const mk=arr=>arr.length===1?{sg:arr[0].g,tmode:'stop'}:{bands:arr,tmode:'stop'};
+    if (lay.tmode==='keep') A.push({what:'the same grid without the transfer (columns stop at the restricted zones)',lay:{...lay,tmode:'stop',from:null}});
+    if (lay.bands){ const bs=lay.bands; for(let i=1;i<bs.length;i++){ const lo=bs[i-1].g, hi=bs[i].g;
+      const ext=ax=>{ const P=hi[ax].pos, mn=Math.min(...P), mx=Math.max(...P); const pos=[...P,...lo[ax].pos.filter(v=>v<mn-TOL||v>mx+TOL)].sort((a,b)=>a-b); return {pos,labels:pos.map((v,k)=>'S'+k)}; };
+      A.push({what:`the lower grid continued above ${names[bs[i].from]} (no transfer there)`,lay:mk(bs.filter((b,j)=>j!==i))});
+      A.push({what:`the upper grid continued below ${names[bs[i].from]} (no transfer there)`,lay:mk(bs.map((b,j)=>j===i-1?{from:b.from,g:{x:ext('x'),y:ext('y')}}:b).filter((b,j)=>j!==i))}); } }
+    return A; };
+  let n2=0; const todo=lays.filter(l=>l.tmode==='keep'||l.bands);
+  for (const lay of todo){ const alts=altsOf(lay);
+    for (const mat of ['rc','st']){ const es=out.filter(e=>e.lay===lay&&e.sc.mat===mat&&feasibleE(e)); if(!es.length) continue;
+      const hit=alts.find(a=>viableAlt(a.lay,mat)); if (hit) es.forEach(e=>{ e.R.meaningless=`Not needed: a ${mat==='rc'?'RC':'steel'} scheme also works with ${hit.what}.`; }); }
+    n2++; yield {phase:'Checking that transfers / grid changes are needed',i:n2,n:todo.length}; }
   return {list:out,lays};
 }
 function evaluate(W){ const g=evalGen(W); let x; while(!(x=g.next()).done); return x.value; }
@@ -858,7 +877,7 @@ function sigOf(e){ const tr=[...new Set([...e.R.used].map(u=>SYS_CAT[u]).filter(
 const major=t=>t.split(' + ').map(x=>x==='STOREY-DEEP'?'GIRDER':x).filter((v,i,a)=>a.indexOf(v)===i).join(' + ');
 function distinctBy(a,b){ const A=sigOf(a), B=sigOf(b), d=[]; if(layDiff(a.lay,b.lay)) d.push('column spacing / layout (framing plan)'); if(A.tm!==B.tm) d.push('transfer vs no transfer (load path)'); if(major(A.tr)!==major(B.tr)) d.push('transfer principle (load path)'); return d; }
 function weakDiff(a,b){ const A=sigOf(a), B=sigOf(b); return !distinctBy(a,b).length&&(A.tr!==B.tr||A.lay!==B.lay); }
-const feasibleE=e=>e.R.applicable&&e.R.worst!=='fail';
+const feasibleE=e=>e.R.applicable&&e.R.worst!=='fail'&&!e.R.meaningless;
 // how different two schemes are, aspect by aspect (the answer pair should differ in as many as possible)
 function tLevels(e){ const s=new Set(); Object.values(e.R.ch).forEach(c=>{ if(c&&c.m&&c.m.carries&&c.tag) s.add(c.m.level); });
   e.R.checks.forEach(c=>{ if(c.cat==='Transfer plate') s.add(c.where); if(c.cat==='Hanger + truss'){ const m=c.item.match(/TRUSS IN (\S+)/); if(m) s.add(m[1]); } if(c.cat==='Inclined column') s.add(c.where.split(' ')[0]); }); return s; }
@@ -1386,7 +1405,7 @@ function renderOut(){
     const rowH=e=>{ const worst=e.R.checks.filter(c=>c.v===e.R.worst&&e.R.worst!=='pass').slice(0,2); const cols=e.R.checks.filter(c=>c.cat==='Column');
       const res=!e.R.applicable?'<span class="na">— NOT APPLICABLE</span>':`${V_ICON[e.R.worst]} ${V_TXT[e.R.worst]}`;
       return `<tr data-id="${e.sc.id}" class="${view.scheme===e.sc.id?'sel':''} ${!e.R.applicable?'dim':''}"><td>${e.sc.id}</td><td>${esc(e.sc.name)}${e.sc.note?`<div class="note">${esc(e.sc.note)}</div>`:''}</td><td>${e.lay.id}</td><td style="white-space:nowrap">${res}</td><td>${!e.R.applicable?esc(naReason(e)):worst.map(c=>`${esc(c.item)} — ${esc(c.where)}: ${esc(c.calc)}`).join('<br>')||'—'}</td><td style="white-space:nowrap">${cols.map(c=>esc(c.item.replace('COLUMN ',''))).join('<br>')}</td></tr>`; };
-    const app=order.filter(e=>e.R.applicable&&e.R.worst!=='fail'), bad=order.filter(e=>e.R.applicable&&e.R.worst==='fail'), na=order.filter(e=>!e.R.applicable);
+    const app=order.filter(feasibleE), bad=order.filter(e=>e.R.applicable&&e.R.worst==='fail'), na=order.filter(e=>!e.R.applicable);
     html+=`<div class="card"><h2>Column layouts with viable schemes (${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).length} of ${RES.lays.length} checked)</h2><div class="hint">Generated from the building length, the minimum column spacing, end cantilevers and the core / restricted-zone edges, then screened (spacing, cantilever, spans). Only the most varied layouts are fully checked (setting “Max. column layouts”).</div><details ${view.layOpen?'open':''} id="layDet"><summary>Show the layout list</summary><table class="mini"><tr><th></th><th>Grid X (bays)</th><th>Grid Y (bays)</th><th>Above transfer level</th><th>Columns over restricted zones</th><th>Viable schemes</th></tr>${RES.lays.filter(l=>L.some(e=>e.lay===l&&feasibleE(e))).map(l=>{ const es=L.filter(e=>e.lay===l&&feasibleE(e)); return `<tr><td><b>${l.id}</b></td><td>${esc(l.bays.x)}${l.arch?' (as given)':''}</td><td>${esc(l.bays.y)}</td><td>${l.band?`from ${esc(L[0].C.names[l.band.u])}: X ${esc(l.ux.txt)}; Y ${esc(l.uy.txt)}`:'—'}${l.band3?`<br>from ${esc(L[0].C.names[l.band3.u])}: X ${esc(l.band3.top.x.txt)}; Y ${esc(l.band3.top.y.txt)}`:''}</td><td>${esc(l.ttxt)}</td><td>${es.map(e=>`<a href="#" data-go="${e.sc.id}">${e.sc.base}</a> ${V_ICON[e.R.worst]}`).join(', ')||'<span class="ng">none</span>'}</td></tr>`; }).join('')}</table></details></div>`;
     const rp=recPair(L)||{}; const shown=e=>e.R.worst==='pass'||view.showMarg;
     const pickRow=(e,role)=>{ const cols=e.R.checks.filter(c=>c.cat==='Column').map(c=>esc(c.item.replace('COLUMN ','').replace(' (ENCASED)',''))).join(', '); const on=(role==='rc'?rp.a:rp.b)===e;
@@ -1394,7 +1413,7 @@ function renderOut(){
       return `<tr data-pick="${role}" data-id="${e.sc.id}" class="${on?'sel':''} ${view.scheme===e.sc.id?'cur':''}"><td><input type="radio" name="pk_${role}" ${on?'checked':''}></td><td><b>${e.sc.id}</b> ${V_ICON[e.R.worst]}<div class="note">${esc(e.sc.name.toLowerCase())}</div><div class="note">${esc(e.lay.short.toLowerCase())}</div><div class="note">${cols}</div></td><td style="white-space:nowrap">${dd.length?`✅ ${aScore(role==='st'?aspects(rp.a,e):aspects(e,rp.b))} pts`:'<span class="ng">same as other</span>'}</td></tr>`; };
     const col=(list,role,ttl)=>`<div><h3>${ttl} (${list.filter(shown).length})</h3><table class="mini cat pick">${list.filter(shown).map(e=>pickRow(e,role)).join('')}</table></div>`;
     const nm=app.filter(e=>e.R.worst==='marg').length;
-    html+=`<div class="card"><h2>Choose your two schemes</h2><div class="hint">Left: RC schemes. Right: steel schemes. Click a row to choose it (and to show its plans below). Not feasible ones are hidden (${bad.length+na.length}).</div>
+    html+=`<div class="card"><h2>Choose your two schemes</h2><div class="hint">Left: RC schemes. Right: steel schemes. Click a row to choose it (and to show its plans below). Hidden: ${bad.length+na.length} not feasible / not applicable, ${L.filter(e=>e.R.meaningless).length} with a transfer or grid change that is not needed (the same material works without it).</div>
     <div class="sbs">${col(rp.rc||[],'rc','RC SCHEMES')}${col(rp.stl||[],'st','STEEL SCHEMES')}</div>${nm?`<p class="noprint"><button id="bMarg">${view.showMarg?'Hide':'Show'} ${nm} slightly-off schemes</button></p>`:''}</div>`;
     const E=L.find(e=>e.sc.id===view.scheme)||order[0]; view.scheme=E.sc.id;
     html+=schemeHTML(E);
