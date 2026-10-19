@@ -535,14 +535,14 @@ const DEF_SET = {
   tol:15, step:250, minSize:500,
   slabRC:150, slabComp:125, sdSlab:26, sdSec:23, sdMain:26, sdCant:7, cantRC:5, cantSt:7,
   kRC:20, kSt:17.8, ef:1.25, tf:1.5, nRC:27.7, nComp:39.95, fcuB:45, py:355, sdPT:20, plateRatio:6, wallRatio:6, inclMax:0.25,
-  slenderBraced:15, maxGrad:6, maxStopFloors:2, colGroups:4, colPrefRC:1000, colPrefSt:750, zoneOffset:1, layouts:1, spRound:0.25, spanRC:12, spanSt:18, maxLayouts:30, maxBay:20, sdFlat:26, vcFlat:0.6
+  slenderBraced:15, maxGrad:6, maxStopFloors:2, colGroups:4, colPrefRC:1000, colPrefSt:750, zoneOffset:1, layouts:1, cantGrid:2.5, spRound:0.25, spanRC:12, spanSt:18, maxLayouts:30, maxBay:20, sdFlat:26, vcFlat:0.6
 };
 const SET_LABELS = {
   tol:'"Slightly off" tolerance (%)', step:'Size step (mm)', minSize:'Min. column size (mm)',
   slabRC:'RC slab thickness (mm)', slabComp:'Composite slab thickness (mm)', sdSlab:'Slab S/D limit', sdSec:'Secondary beam S/D (×10/L if L>10)', sdMain:'Main / transfer beam S/D (×10/L if L>10)', sdCant:'Cantilever S/D limit',
   cantRC:'RC cantilever max. span (m)', cantSt:'Steel cantilever max. span (m)',
   kRC:'RC load per floor (kPa)', kSt:'Steel WULS per floor (kPa)', ef:'Elastic factor (columns)', tf:'Transfer factor', nRC:'RC column N/Ac (fcu60, 2%)', nComp:'Composite column N/Ac', fcuB:'Beam fcu (MPa)', py:'Steel py (MPa)',
-  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', maxGrad:'Ramp: max. gradient 1 : n (default n)', maxStopFloors:'Max. floors on long-span beams above a restricted zone (else transfer)', layouts:'Generate column layouts (1 = yes, 0 = only the architectural grid)', spanRC:'RC: max. column spacing on the typical grid (m)', spanSt:'Steel: max. column spacing on the typical grid (m)', spRound:'Round column spacing to (m, 0 = exact division)', maxLayouts:'Max. column layouts fully checked', maxBay:'Max. column spacing tried (m)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 4 = two sizes (preferred size + one larger), 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column', colPrefRC:'RC preferred column size (mm)', colPrefSt:'Steel (encased) preferred column size (mm)'
+  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', maxGrad:'Ramp: max. gradient 1 : n (default n)', maxStopFloors:'Max. floors on long-span beams above a restricted zone (else transfer)', layouts:'Generate column layouts (1 = yes, 0 = only the architectural grid)', spanRC:'RC: max. column spacing on the typical grid (m)', spanSt:'Steel: max. column spacing on the typical grid (m)', cantGrid:'Generated grids: max. end cantilever (m, 0 = none)', spRound:'Round column spacing to (m, 0 = exact division)', maxLayouts:'Max. column layouts fully checked', maxBay:'Max. column spacing tried (m)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 4 = two sizes (preferred size + one larger), 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column', colPrefRC:'RC preferred column size (mm)', colPrefSt:'Steel (encased) preferred column size (mm)'
 };
 const KINDS = [
   ['core','Core wall (rigid support)'],
@@ -760,7 +760,8 @@ function* layoutGen(W){
       let best=null; for(let b=Math.ceil(ex/q)*q+q;b>=ex-1.5;b-=q){ const e=(L-(n-2)*b)/2; if(!isQ(e)&&isQ(L)) continue; const d=Math.abs(e-b); if(d<=1.5&&(!best||d<best.d)) best={b,e,d}; }
       return best?[best.e,...Array(n-2).fill(best.b),best.e]:Array(n).fill(ex); };
     const seq=(a,bs)=>{ const o=[a]; bs.forEach(v=>o.push(o.at(-1)+v)); return o; };
-    for (const c of [0,2.5,5]){ const L=hi-lo-2*c; if(L<=0) continue; for(let n=1;n<=40;n++){ const ex=L/n; if(ex<minSp-1e-6) break; if(ex>maxBay+1e-6) continue; const bs=div(L,n); if(Math.min(...bs)<minSp-1e-6) continue; push(seq(lo+c,bs),c?`cantilever ${c} m`:'equal bays'); } }
+    const cg=Math.max(0,num(st.cantGrid)??2.5), cOpts=[...new Set([0,cg>=2.5?Math.round(cg/2/0.25)*0.25:null,cg].filter(v=>v!==null&&v>=0))];
+    for (const c of cOpts){ const L=hi-lo-2*c; if(L<=0) continue; for(let n=1;n<=40;n++){ const ex=L/n; if(ex<minSp-1e-6) break; if(ex>maxBay+1e-6) continue; const bs=div(L,n); if(Math.min(...bs)<minSp-1e-6) continue; push(seq(lo+c,bs),c?`cantilever ${c} m`:'equal bays'); } }
     // aligned to footprint / core / restricted-zone edges
     const mand=new Set([lo,hi]), pref=new Set();
     M.zones.filter(z=>ss.some(s=>zAt(z,s))).forEach(z=>{ const a=ax==='x'?[z.x1,z.x2]:[z.y1,z.y2]; a.map(r).filter(inR).forEach(v=>(z.type==='footprint'||z.type==='core'?mand:pref).add(v)); });
@@ -771,7 +772,7 @@ function* layoutGen(W){
     const add=(o,cap)=>{ const k=(o.pos.length)+'|'+Math.round(Math.max(...bays(o.pos))); if(!seen.has(k)&&keep.length<cap){ seen.add(k); keep.push(o); } };
     sets.filter(o=>!o.kind.startsWith('cantilever')).sort((a,b)=>(pri[a.kind]??3)-(pri[b.kind]??3)).forEach(o=>add(o,maxAx-2));
     sets.filter(o=>o.kind.startsWith('cantilever')).forEach(o=>add(o,maxAx));
-    return keep.map(o=>{ const c=r(o.pos[0]-lo); const ct=c>0.01?`${f1(c).replace(/\.0$/,'')} cant. + `:''; const t=bayTxt(o.pos); return {...o,labels:labelsFor(o.pos,ax),txt:ct?ct+t.replace(/ = .*$/,'')+` + ${f1(c).replace(/\.0$/,'')} cant. = ${f1(hi-lo).replace(/\.0$/,'')} m`:t,maxB:Math.max(...bays(o.pos)),cant:c}; });
+    return keep.map(o=>{ const c=r(o.pos[0]-lo); const ct=c>0.01?`${f2(c).replace(/\.?0+$/,'')} cant. + `:''; const t=bayTxt(o.pos); return {...o,labels:labelsFor(o.pos,ax),txt:ct?ct+t.replace(/ = .*$/,'')+` + ${f2(c).replace(/\.?0+$/,'')} cant. = ${f1(hi-lo).replace(/\.0$/,'')} m`:t,maxB:Math.max(...bays(o.pos)),cant:c}; });
   };
   // stage-1 screen: column spacing per floor type, edge cantilever, member spans
   const screen=lay=>{ const Cl=compile(W,null,null,lay); if(Cl.err.length) return null; const Ml=buildModel(Cl.S); if(Ml.err.length) return null;
@@ -781,7 +782,7 @@ function* layoutGen(W){
         for (const ln of lines.values()){ const arr=ln.vs.sort((a,b)=>a-b); for(let i=0;i<arr.length-1;i++){ const m=(arr[i]+arr[i+1])/2; const rq=spReqAt(Ml,Cl,s,ln.a==='x'?m:ln.k,ln.a==='x'?ln.k:m); if(!rq) continue; const d=arr[i+1]-arr[i]-(rq.e?0.75:0); worstSp=Math.min(worstSp,d/rq.v); if(d<rq.v-1e-6) return null; } } }
       const fp=Ml.zones.filter(z=>z.type==='footprint'&&Ml.zAct(z,s)); if(!cols.length) continue;
       const cores=Ml.zones.filter(z=>z.type==='core'&&Ml.zAct(z,s));
-      for (const z of fp){ const xs=cols.map(p=>p.x).concat(cores.flatMap(c=>[c.x1,c.x2])), ys=cols.map(p=>p.y).concat(cores.flatMap(c=>[c.y1,c.y2])); const c=Math.max(Math.min(...xs)-z.x1,z.x2-Math.max(...xs),Math.min(...ys)-z.y1,z.y2-Math.max(...ys)); if(c>7+1e-6) return null; } }
+      for (const z of fp){ const xs=cols.map(p=>p.x).concat(cores.flatMap(c=>[c.x1,c.x2])), ys=cols.map(p=>p.y).concat(cores.flatMap(c=>[c.y1,c.y2])); const c=Math.max(Math.min(...xs)-z.x1,z.x2-Math.max(...xs),Math.min(...ys)-z.y1,z.y2-Math.max(...ys)); if(c>Math.max(num(st.cantGrid)??2.5,0.3)+1e-6) return null; } }
     if (Object.values(Ml.levelInfo).some(li=>li.unresolved&&li.unresolved.length)) return null;
     const spans=Ml.members.map(m=>m.span); const mx=spans.length?Math.max(...spans):0; if(mx>30) return null;
     const nCol=Ml.pts.filter(p=>Ml.col.some(row=>row[p.id]==='col'||row[p.id]==='edge')).length;
