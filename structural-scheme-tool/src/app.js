@@ -816,7 +816,7 @@ function keyPlan(M,grp){
 
 /* ---------- UI ---------- */
 const $=s=>document.querySelector(s);
-let RES=null, view={scheme:null,step:1,tab:'schemes',hide:new Set(),cmp:null,cmpPlan:0};
+let RES=null, view={scheme:null,step:1,tab:'schemes',hide:new Set(),cmp:null,cmpPlan:0,secOpen:new Set()};
 function fieldI(label,obj,key,w){ return `<label>${esc(label)}<input data-k="${key}" value="${esc(obj[key]??'')}" style="width:${w||'80px'}"></label>`; }
 function bindFields(root,obj){ root.querySelectorAll('[data-k]').forEach(el=>{ const k=el.dataset.k; const ev=el.type==='checkbox'?'change':'input'; el.addEventListener(ev,()=>{ obj[k]=el.type==='checkbox'?el.checked:el.value; changedW(); }); }); }
 function tableI(rows,cols,host,redraw){
@@ -1019,6 +1019,7 @@ function renderOut(){
 function bindOut(){
   const h=$('#out');
   const bm=$('#bMarg'); if(bm) bm.onclick=ev=>{ ev.stopPropagation(); view.showMarg=!view.showMarg; renderOut(); };
+  h.querySelectorAll('details.sec').forEach(d=>d.ontoggle=()=>{ if(d.open) view.secOpen.add(d.dataset.sec); else view.secOpen.delete(d.dataset.sec); });
   const ld=$('#layDet'); if(ld) ld.ontoggle=()=>{ view.layOpen=ld.open; };
   h.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ view.tab=b.dataset.tab; renderOut(); });
   h.querySelectorAll('.cat tr[data-id]').forEach(tr=>tr.onclick=()=>{ view.scheme=tr.dataset.id; if(tr.dataset.pick==='rc') view.pickRC=tr.dataset.id; if(tr.dataset.pick==='st') view.pickST=tr.dataset.id; renderOut(); });
@@ -1039,7 +1040,9 @@ function schemeHTML(E){
   groups.forEach(g=>{ const p=planSVG2(E,g.k1,g); h+=`<div class="planbox"><div class="planimg">${p.svg}<div class="ptitle">${esc(p.title)}</div>${planNotes(E,g)}</div><div class="side">${keyPlan(M,g)}${planSide(E,g)}</div></div>`; });
   h+=`<h3>Sections</h3>`+sectionsHTML(E);
   h+=`<h3>Member summary</h3><table class="mini"><tr><th>Floor type</th><th>Slab</th><th>Secondary beam</th><th>Main beam</th><th>Zone</th></tr>${R.typ.map(t=>`<tr><td>${esc(t.type)} (${esc(t.floors)})</td><td>${sc.mat==='rc'?W.set.slabRC:W.set.slabComp} THK @ ${f2(t.ls)} m</td><td>${esc(t.sec)}</td><td>${esc(t.main)}</td><td>${f0(t.zone*1000)}</td></tr>`).join('')}</table>`;
-  h+=`<h3>Feasibility (your template rules)</h3><table class="mini"><tr><th></th><th>Item</th><th>Where</th><th>Check</th><th>Ratio</th><th>If slightly off</th></tr>${R.checks.filter(c=>c.cat!=='Column offset').sort((a,b)=>V_RANK[b.v]-V_RANK[a.v]).map(c=>`<tr class="v-${c.v}"><td>${V_ICON[c.v]}</td><td>${esc(c.item)}</td><td>${esc(c.where)}</td><td>${esc(c.calc)}</td><td>${c.ratio>0?f2(c.ratio):''}</td><td>${c.v==='marg'?esc(c.fix):''}</td></tr>`).join('')}${(()=>{ const o=R.checks.filter(c=>c.cat==='Column offset'); return o.length?`<tr><td>✅</td><td>COLUMN OFFSETS (${o.length} NOS.)</td><td colspan="4">faces kept outside restricted zones and inside the building edge; whole column lines moved together<details><summary>list</summary>${o.map(c=>`${esc(c.item.replace('COLUMN ',''))} — ${esc(c.calc)}`).join('<br>')}</details></td></tr>`:''; })()}</table>`;
+  { const nf=R.checks.filter(c=>c.v==='fail').length, nm=R.checks.filter(c=>c.v==='marg').length;
+    h+=`<details class="sec" data-sec="feas" ${view.secOpen.has('feas')?'open':''}><summary><b>FEASIBILITY (YOUR TEMPLATE RULES)</b> — ${R.checks.filter(c=>c.cat!=='Column offset').length} checks${nf?`, <span class="ng">${nf} not OK</span>`:''}${nm?`, <span class="mg">${nm} slightly off</span>`:''}${!nf&&!nm?', <span class="ok">all OK</span>':''}</summary>`; }
+  h+=`<table class="mini"><tr><th></th><th>Item</th><th>Where</th><th>Check</th><th>Ratio</th><th>If slightly off</th></tr>${R.checks.filter(c=>c.cat!=='Column offset').sort((a,b)=>V_RANK[b.v]-V_RANK[a.v]).map(c=>`<tr class="v-${c.v}"><td>${V_ICON[c.v]}</td><td>${esc(c.item)}</td><td>${esc(c.where)}</td><td>${esc(c.calc)}</td><td>${c.ratio>0?f2(c.ratio):''}</td><td>${c.v==='marg'?esc(c.fix):''}</td></tr>`).join('')}${(()=>{ const o=R.checks.filter(c=>c.cat==='Column offset'); return o.length?`<tr><td>✅</td><td>COLUMN OFFSETS (${o.length} NOS.)</td><td colspan="4">faces kept outside restricted zones and inside the building edge; whole column lines moved together<details><summary>list</summary>${o.map(c=>`${esc(c.item.replace('COLUMN ',''))} — ${esc(c.calc)}`).join('<br>')}</details></td></tr>`:''; })()}</table></details>`;
   const tr=[...R.used].filter(u=>['RCWALL','PLATE','INCL','HANG','STRUSS','PT'].includes(u));
   h+=`<h3>C. Functional frame</h3><p class="u">${sc.mat==='rc'?'RC slab spanning 1-way between secondary beams. Secondary beams supported by main beams on the column grid.':'Steel decking with in-situ concrete topping provided as floor slab; shear studs provide composite action; moment joints between columns and main beams, secondary beams pinned.'}
   ${M.members.length?` Long-span / transfer members (G-tags on plans) are provided at ${[...new Set(M.members.map(m=>m.level))].join(', ')}.`:''}
@@ -1136,7 +1139,7 @@ function calcBlock(b){
 function reportHTML(E){
   const blocks=reportBlocks(E); const txt=((W.txt||{})[E.sc.id])||{};
   const ed=(k,def)=>`<div contenteditable="true" data-t="${k}">${txt[k]!==undefined?txt[k]:esc(def)}</div>`;
-  let h=`<div class="card"><h2>Calculation report (editable) <button id="bCopyRep" class="noprint" style="float:right">Copy report</button> <button id="bResetRep" class="noprint" style="float:right;margin-right:6px">Reset this scheme</button></h2>
+  let h=`<div class="card"><details class="sec" data-sec="rep" ${view.secOpen.has('rep')?'open':''}><summary><b>CALCULATION REPORT (EDITABLE)</b> — ${blocks.length} blocks${blocks.some(b=>calcBlock(b).v==='fail')?', <span class="ng">some not OK</span>':''}</summary><div style="overflow:hidden;margin-top:6px"><button id="bCopyRep" class="noprint" style="float:right">Copy report</button> <button id="bResetRep" class="noprint" style="float:right;margin-right:6px">Reset this scheme</button></div>
   <div class="hint noprint">Yellow cells are inputs — change a value and press Enter or Tab; the block recalculates and the verdict updates. Changed cells turn orange and are saved with the question. Text paragraphs can be edited directly.</div><div class="rep" id="rep">`;
   h+=`<div class="blk"><b>SCHEME ${E.sc.id}:</b> ${ed('name',E.sc.name)}</div>`;
   h+=`<div class="blk"><b>FEASIBILITY CHECK</b></div>`;
@@ -1145,7 +1148,7 @@ function reportHTML(E){
   h+=`<div class="blk"><b>E. HORIZONTAL LOAD TRANSFER AND STABILITY</b>\n${ed('hor','IT IS PROVIDED BY BEAM-COLUMN FRAMEWORK AND CORE WALL DOWN TO FOUNDATION. FRAMEWORK WILL CARRY SMALL PORTION OF WIND FORCE DUE TO RELATIVELY SMALL STIFFNESS AND WILL NOT DOMINATE THE DESIGN.\nWIND LOAD → EXTERNAL CLADDING → SLAB (DIAPHRAGM ACTION) → CORE WALL / BEAM-COLUMN FRAMEWORK → PILE CAP → FOUNDATION.')}</div>`;
   h+=`<div class="blk"><b>F. ROBUSTNESS</b>\n${ed('rob','EFFECTIVE HORIZONTAL AND VERTICAL TIES; DESIGN FOR MIN. HORIZONTAL FORCE; PROVIDE ALTERNATIVE LOAD PATH; DESIGNED TO ACT AS A MONOLITHIC STRUCTURE.')}</div>`;
   h+=`<div class="blk"><b>G. OTHER CONSIDERATION</b>\n${ed('oth',(E.M.lateral&&E.M.lateral.cores.length&&(E.M.lateral.rx>0.1||E.M.lateral.ry>0.1)?`TORSION: TWISTING OF THE CORE DUE TO THE UNSYMMETRICAL LAYOUT OF THE CORE (EX = ${f1(E.M.lateral.ex)} m) SHALL BE CHECKED IN DETAILED DESIGN STAGE.\n`:'')+'DEFLECTION: ACTUAL DEFLECTION OF CORE AND TRANSFER / LONG-SPAN MEMBERS SHALL BE CHECKED IN DETAILED DESIGN STAGE.\nFIRE RESISTANCE: '+(E.sc.mat==='rc'?'PROVIDE SUFFICIENT CONCRETE COVER.':'MINERAL FIBRE SPRAY / INTUMESCENT PAINT. CORROSION: PAINT COATING / HOT-DIP GALVANIZING.'))}</div>`;
-  h+='</div></div>'; return h;
+  h+='</div></details></div>'; return h;
 }
 function bindReport(E){
   const root=document.getElementById('rep'); if(!root) return;
