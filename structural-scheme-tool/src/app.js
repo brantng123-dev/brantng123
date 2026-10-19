@@ -342,6 +342,7 @@ function* evalGen(W){
     else { const C=compile(W,null,null,alt); if(!C.err.length){ const M=buildModel(C.S); if(!M.err.length){ ls=lsFloors(M); ok=SCHEMES.filter(s0=>s0.mat===mat).some(s0=>{ const R=assess(W,{...s0,lay:alt},C,M); return R.applicable&&R.worst!=='fail'; }); } } }
     const r={ok,ls}; cache.set(key,r); return r; };
   // floors that need long-span (non-transfer) members over restricted zones
+  function maxCarried(M){ let mx=0; M.tpoints.forEach(t=>{ if(!t.carries) return; const p=M.pmap.get(t.key); if(!p) return; let n=0; for(let s=t.k;s<=M.nL-2&&M.present(M.col[s][p.id]);s++) n++; mx=Math.max(mx,n); }); return mx; }
   function lsFloors(M){ return new Set(M.members.filter(m=>!m.carries).map(m=>m.k)).size; }
   const altsOf=lay=>{ const A=[]; const mk=arr=>arr.length===1?{sg:arr[0].g,tmode:'stop'}:{bands:arr,tmode:'stop'};
     if (lay.tmode==='keep') A.push({what:'the same grid without the transfer (columns stop at the restricted zones)',lay:{...lay,tmode:'stop',from:null}});
@@ -353,6 +354,8 @@ function* evalGen(W){
   let n2=0; const todo=lays.filter(l=>l.tmode==='keep'||l.bands);
   for (const lay of todo){ const alts=altsOf(lay);
     for (const mat of ['rc','st']){ const es=out.filter(e=>e.lay===lay&&e.sc.mat===mat&&feasibleE(e)); if(!es.length) continue;
+      // a transfer that only carries the top storey (e.g. one roof column) is not worth a transfer structure
+      const carried=maxCarried(es[0].M); if (carried<2){ es.forEach(e=>{ e.R.meaningless=`Not needed: the transferred columns carry only ${carried?'the top storey':'nothing'} — use a long-span roof / plant-floor member instead.`; }); continue; }
       // needed = the alternative fails, or the transfer / grid change saves long-span members on at least two floors
       const own=lsFloors(es[0].M); const hit=alts.find(a=>{ const r=viableAlt(a.lay,mat); return r.ok&&r.ls-own<2; });
       if (hit) es.forEach(e=>{ e.R.meaningless=`Not needed: a ${mat==='rc'?'RC':'steel'} scheme also works with ${hit.what}, with long-span members on about as many floors.`; });
@@ -373,10 +376,10 @@ function distinctBy(a,b){ const A=sigOf(a), B=sigOf(b), d=[]; if(layDiff(a.lay,b
 function weakDiff(a,b){ const A=sigOf(a), B=sigOf(b); return !distinctBy(a,b).length&&(A.tr!==B.tr||A.lay!==B.lay); }
 const feasibleE=e=>e.R.applicable&&e.R.worst!=='fail'&&!e.R.meaningless;
 // how different two schemes are, aspect by aspect (the answer pair should differ in as many as possible)
-function tLevels(e){ const s=new Set(); Object.values(e.R.ch).forEach(c=>{ if(c&&c.m&&c.m.carries&&c.tag) s.add(c.m.level); });
+function tLevels(e){ const s=new Set(); Object.values(e.R.ch).forEach(c=>{ if(c&&c.m&&c.m.carries&&!c.inTruss&&c.tag) s.add(c.m.level); });
   e.R.checks.forEach(c=>{ if(c.cat==='Transfer plate') s.add(c.where); if(c.cat==='Hanger + truss'){ const m=c.item.match(/TRUSS IN (\S+)/); if(m) s.add(m[1]); } if(c.cat==='Inclined column') s.add(c.where.split(' ')[0]); }); return s; }
 function tTypes(e){ const t=new Set(); ['PLATE','RPLATE','HANG','INCL'].forEach(u=>{ if(e.R.used.has(u)) t.add(u); });
-  Object.values(e.R.ch).forEach(c=>{ if(!c||!c.m||!c.m.carries) return; if(c.sys==='RC'||c.sys==='ST') t.add('GIRDER'); else if(['STRUSS','RCWALL','PT'].includes(c.sys)) t.add(c.sys); }); return t; }
+  Object.values(e.R.ch).forEach(c=>{ if(!c||!c.m||!c.m.carries||c.inTruss) return; if(c.sys==='RC'||c.sys==='ST') t.add('GIRDER'); else if(['STRUSS','RCWALL','PT'].includes(c.sys)) t.add(c.sys); }); return t; }
 const T_NAME={RPLATE:'inclined transfer plate (ramp)',PLATE:'transfer plate',STRUSS:'storey-deep truss',RCWALL:'storey-deep wall / deep beam',HANG:'hanger + roof truss',INCL:'inclined column',PT:'PT girder',GIRDER:'transfer girder'};
 function maxBay(e){ return Math.max(...e.M.grids.filter(g=>g.cols).flatMap(g=>[...g.gx.sp,...g.gy.sp])); }
 function aspects(a,b){
@@ -465,8 +468,10 @@ function assess(W,sc,C,M){
     const sig=sc.must&&opts.find(o=>o.sys===sc.must&&verdictOf(o.ratio,tol)!=='fail');
     const best=sig||opts.slice().sort((a,b)=>V_RANK[verdictOf(a.ratio,tol)]-V_RANK[verdictOf(b.ratio,tol)]||a.ratio-b.ratio)[0];
     const tag=`G${++gN}`;
-    const c=add({cat:m.carries?'Transfer':'Long span',where,item:`${tag}: ${best.txt}`,calc:`span ${f1(m.span)} m${m.cant?' (cantilever)':''}; zone ${f0(m.avail*1000)} mm${m.voidName?' (over '+m.voidName+')':''}; ${best.calc}`,need:best.need,have:best.have,ratio:best.ratio,fix:'Increase width / use C60 / compression steel / local deepening into plant floor'});
-    ch[m.id]={...best,tag,v:c.v,m,P,wTrib:10}; used.add(best.sys);
+    // a column that only exists inside the storey of a storey-deep truss / wall is the truss post, not a transferred column
+    const inTruss=m.carries&&(best.sys==='STRUSS'||best.sys==='RCWALL')&&best.where==='above'&&m.pts.every(pk=>{ const pp=M.pmap.get(pk); return pp&&!(m.k+1<=nL-2&&M.present(M.col[m.k+1][pp.id])); });
+    const c=add({cat:m.carries&&!inTruss?'Transfer':'Long span',where,item:`${tag}: ${best.txt}${inTruss?' (POSTS WITHIN THE TRUSS STOREY — LONG SPAN, NOT A TRANSFER)':''}`,calc:`span ${f1(m.span)} m${m.cant?' (cantilever)':''}; zone ${f0(m.avail*1000)} mm${m.voidName?' (over '+m.voidName+')':''}; ${best.calc}`,need:best.need,have:best.have,ratio:best.ratio,fix:'Increase width / use C60 / compression steel / local deepening into plant floor'});
+    ch[m.id]={...best,tag,v:c.v,m,P,wTrib:10,inTruss}; used.add(best.sys);
     if ((best.sys==='STRUSS'||best.sys==='RCWALL')&&best.where==='above') covered.add(`${m.k+1}|${geo}`);
   }
   Object.values(M.levelInfo).forEach(li=>{ if(li.unresolved&&li.unresolved.length&&!plateLv.has(li.k)) add({cat:'Transfer',where:L[li.k].name,item:`COLUMNS ${li.unresolved.slice(0,4).map(t=>t.label).join(', ')}${li.unresolved.length>4?' …':''} HAVE NO TRANSFER SUPPORT`,calc:`${li.unresolved.length} column(s) above sit on no lower column, wall or transfer beam line in either direction`,need:2,have:1,ratio:2,strict:true,fix:''}); });
@@ -780,16 +785,20 @@ function sectionSVG(E,cut){
   const cuts=[...new Set(ps.concat(ag.pos))].sort((a,b)=>a-b);
   for(let k=0;k<nL;k++){ for(let i=0;i<cuts.length-1;i++){ const a=cuts[i], b=cuts[i+1]; if(b-a<1e-6) continue; const [x,y]=at((a+b)/2); if(M.slabAt(k,x,y)) g+=`<line x1="${U(a)}" y1="${V(z[k])}" x2="${U(b)}" y2="${V(z[k])}" stroke="#222" stroke-width="${k===0?3:2}"/>`; } }
   // long-span / transfer members on this line
+  const trussPosts=new Set();
   M.members.forEach(m=>{ if(m.dir!==cut.dir||Math.abs((along?m.y1:m.x1)-c)>TOL) return; const ch=R.ch[m.id]; if(!ch||!ch.sys) return; const a=along?m.x1:m.y1, b=along?m.x2:m.y2;
     const col=ch.v==='fail'?'#d62828':ch.v==='marg'?'#e08a00':'#1a9e3f';
     if (ch.sys==='RCWALL'||ch.sys==='STRUSS'){ const top=ch.where==='above'?z[m.k+1]:z[m.k], bot=ch.where==='above'?z[m.k]:z[m.k-1]; g+=`<rect x="${U(a)}" y="${V(top)}" width="${(b-a)*S}" height="${(top-bot)*S}" fill="${ch.sys==='RCWALL'?'#cfe8d6':'none'}" stroke="${col}" stroke-width="1.5"/>`;
       if (ch.sys==='STRUSS'){ const n=Math.max(2,Math.round((b-a)/3)); for(let j=0;j<n;j++){ const xa=a+(b-a)*j/n, xb=a+(b-a)*(j+1)/n; g+=`<line x1="${U(xa)}" y1="${V(j%2?top:bot)}" x2="${U(xb)}" y2="${V(j%2?bot:top)}" stroke="${col}"/>`; } } }
     else { const D=ch.D||0.5; g+=`<rect x="${U(a)}" y="${V(z[m.k])}" width="${(b-a)*S}" height="${Math.max(2,D*S)}" fill="${col}" fill-opacity=".55" stroke="${col}"/>`; }
-    if (ch.tag) g+=`<text x="${U((a+b)/2)}" y="${V(z[m.k])+Math.max(10,(ch.D||0.5)*S+10)}" text-anchor="middle" font-size="9" font-weight="700" fill="${col}">${ch.tag}</text>`; });
+    const deep=ch.sys==='RCWALL'||ch.sys==='STRUSS', ty=deep?V((ch.where==='above'?(z[m.k]+z[m.k+1]):(z[m.k]+z[m.k-1]))/2)+4:V(z[m.k])+Math.max(10,(ch.D||0.5)*S+10);
+    if (ch.tag) g+=`<text x="${U(a+(b-a)*0.25)}" y="${ty}" text-anchor="middle" font-size="9.5" font-weight="700" fill="${col}" stroke="#fff" stroke-width="3" paint-order="stroke">${ch.tag}${ch.inTruss?' (LONG SPAN)':''}</text>`;
+    if (ch.inTruss) m.pts.forEach(pk=>{ const pp=M.pmap.get(pk); if(!pp) return; trussPosts.add(pp.id+'|'+m.k); }); });
   if (R.used.has('PLATE')) Object.values(M.levelInfo).forEach(li=>{ if(!li.carries||!li.plate) return; const t=R.checks.find(cc=>cc.cat==='Transfer plate'&&cc.where===L[li.k].name); if(!t) return; const xs=li.pts.map(p=>along?p.x:p.y); g+=`<rect x="${U(Math.min(...xs)-1)}" y="${V(z[li.k])}" width="${(Math.max(...xs)-Math.min(...xs)+2)*S}" height="${t.need*S}" fill="#1a9e3f" fill-opacity=".35" stroke="#1a9e3f"/>`; });
   // columns on the cut line, storey by storey (with offsets)
   M.pts.forEach(p=>{ if(Math.abs((along?p.y:p.x)-c)>TOL) return; const o=R.offsets[p.id]||{}; const u=(along?p.x+(o.dx||0):p.y+(o.dy||0));
     for(let s=0;s<nL-1;s++){ const st=M.col[s][p.id]; if(!M.present(st)||st==='core') continue; const w=Math.max(2,((R.colSize[p.id]||[])[s]||{side:0.5}).side*S);
+      if (trussPosts.has(p.id+'|'+s)){ g+=`<line x1="${U(u)}" y1="${V(z[s])}" x2="${U(u)}" y2="${V(z[s+1])}" stroke="#1a9e3f" stroke-width="1.5"/>`; continue; }
       g+=`<rect x="${U(u)-w/2}" y="${V(z[s+1])}" width="${w}" height="${(z[s+1]-z[s])*S}" fill="#fff" stroke="#111"/>`; } });
   // ground, levels, grid
   g+=`<line x1="${pad-30}" y1="${V(z0)}" x2="${Wd-pad+30}" y2="${V(z0)}" stroke="#7a5" stroke-width="1" stroke-dasharray="10 4"/><text x="${pad+4}" y="${V(z0)-3}" font-size="8.5" fill="#5a3">GROUND LEVEL</text>`;
@@ -955,6 +964,10 @@ function recHTML(L){
   const r=recPair(L); if(!r) return `<div class="card rec fail"><b>No viable scheme found.</b></div>`;
   if (!r.b) return `<div class="card rec marg"><b>Only ${r.a.sc.mat==='rc'?'RC':'steel'} schemes are viable</b> — no ${r.a.sc.mat==='rc'?'steel':'RC'} scheme passes.</div>`;
   const ok=r.d.length>0, as=r.as, sc=aScore(as), mx=aScore(as.map(x=>({...x,on:true})));
+  const anyPair=r.rc.some(a=>r.stl.some(b=>distinctBy(a,b).length));
+  if (!ok&&!anyPair) return `<div class="card rec fail"><b>No distinct RC + steel pair passes with the current rules.</b> Every viable RC and steel scheme has the same column layout and no needed transfer — only the material differs (not distinct).
+  <div class="note" style="margin-top:6px">What blocks the alternatives here: ${[...new Set(L.filter(e=>e.R.meaningless).map(e=>e.R.meaningless.split(':')[1].split('—')[0].trim()))].slice(0,3).map(esc).join('; ')||'—'}${L.some(e=>e.R.checks.some(c=>c.cat==='Grid span'&&c.v==='fail'))?`; longer grids exceed the practical span (RC ${W.set.spanRC} m / steel ${W.set.spanSt} m)`:''}.</div>
+  <div class="note">Options: (1) accept a longer steel span as a special case — raise “Steel: max. column spacing” in Site &amp; settings (e.g. 20 m) to get a long-span steel layout; (2) check the question for other requirements that change the grid (spacing zones, ramps, loading bays); (3) choose two schemes manually below and justify the difference.</div></div>`;
   return `<div class="card rec ${ok?'pass':'fail'}"><b>Answer: RC <a href="#" data-go="${r.a.sc.id}">${esc(r.a.sc.id)}</a> ${V_ICON[r.a.R.worst]} + STEEL <a href="#" data-go="${r.b.sc.id}">${esc(r.b.sc.id)}</a> ${V_ICON[r.b.R.worst]}</b> — ${ok?`✅ distinct, difference score ${sc} / ${mx}`:'❌ NOT distinct (same layout and transfer — pick another one in the lists below)'}.
   <table class="mini" style="margin:6px 0"><tr><th>Aspect</th><th>Different?</th><th>RC ${esc(r.a.sc.id)} | Steel ${esc(r.b.sc.id)}</th></tr>${as.map(x=>`<tr class="${x.on?'v-pass':''}"><td>${x.txt}</td><td>${x.on?'✅':'—'}</td><td>${esc(x.detail)}</td></tr>`).join('')}</table>
   <button data-cmp="${r.a.sc.id}|${r.b.sc.id}" class="noprint">Compare side by side</button><div class="note">Choose one RC and one steel scheme in the two lists below. HKIE: load path and framing plan must differ; RC vs steel with the same layout is NOT distinct.</div></div>`;
