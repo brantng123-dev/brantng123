@@ -232,7 +232,7 @@ function* layoutGen(W){
   const axisC=(ax,ss,maxAx=8)=>{ const minSp=minSpOf(ss);
     const fps=M.zones.filter(z=>z.type==='footprint'&&ss.some(s=>zAt(z,s)));
     const lo=r(Math.min(...fps.map(z=>ax==='x'?z.x1:z.y1))), hi=r(Math.max(...fps.map(z=>ax==='x'?z.x2:z.y2)));
-    const inR=v=>v>lo-TOL&&v<hi+TOL; const sets=[]; const push=(pos,kind)=>{ pos=pos.map(r); if(pos.length<2) return; const b=bays(pos); if(b.some(v=>v>maxBay+1e-6)) return; if(!sets.some(o=>o.pos.length===pos.length&&o.pos.every((v,i)=>Math.abs(v-pos[i])<TOL))) sets.push({pos,kind}); };
+    const inR=v=>v>lo-TOL&&v<hi+TOL; const sets=[]; const push=(pos,kind)=>{ pos=pos.map(r); if(pos.length<2) return; const b=bays(pos); if(b.some(v=>v>maxBay+1e-6||v<0.05)) return; if(!sets.some(o=>o.pos.length===pos.length&&o.pos.every((v,i)=>Math.abs(v-pos[i])<TOL))) sets.push({pos,kind}); };
     const ap=archP[ax].filter(inR); if (ap.length>1) push(ap,'arch');
     // n bays over length L, each a multiple of spRound: equal inner bays, the two end bays take the remainder
     const q=num(st.spRound)||0, isQ=v=>!q||Math.abs(v/q-Math.round(v/q))<1e-6;
@@ -314,7 +314,10 @@ function* layoutGen(W){
   const bf=new Map(); bandC.sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ const k=`${c.band.u}|${c.nx}x${c.ny}|${c.ux.pos.length}x${c.uy.pos.length}|${c.scr.plateOnly?1:0}`; if(!bf.has(k)) bf.set(k,c); });
   // keep a fair share for each transfer level
   const byU=new Map(); [...bf.values()].forEach(c=>{ if(!byU.has(c.band.u)) byU.set(c.band.u,[]); byU.get(c.band.u).push(c); });
-  const per=Math.max(3,Math.round(maxL/2/Math.max(1,byU.size))); byU.forEach(list=>list.slice(0,per).forEach(c=>pick.push(c)));
+  const per=Math.max(3,Math.round(maxL/2/Math.max(1,byU.size))); // within each transfer level: first the best two layouts for each different upper grid (the question's grid / room partitions first), then the rest by score
+  byU.forEach(list=>{ const seenU=new Map(), first=[], rest=[]; const upK=c=>JSON.stringify([c.ux.pos,c.uy.pos]); const prU=c=>['arch','on room partitions'].includes(c.ux.kind)?0:1;
+    list.slice().sort((a,b)=>prU(a)-prU(b)||a.scr.score-b.scr.score).forEach(c=>{ const k=upK(c), n=seenU.get(k)||0; if(n<2){ seenU.set(k,n+1); first.push(c); } else rest.push(c); });
+    [...first,...rest.sort((a,b)=>a.scr.score-b.scr.score)].slice(0,per+4).forEach(c=>pick.push(c)); });
   // three bands: best lower grids of the lowest split, best upper grids of the highest split, generated grids in between
   const tri=[]; const uniq=(arr,f)=>{ const m=new Map(); arr.forEach(c=>{ const k=f(c); if(!m.has(k)) m.set(k,c); }); return [...m.values()]; };
   for (let i=0;i<okSplits.length;i++) for (let j=i+1;j<okSplits.length;j++){ const u1=okSplits[i], u2=okSplits[j]; if(u2-u1<1) continue;
