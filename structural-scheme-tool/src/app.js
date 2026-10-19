@@ -162,7 +162,8 @@ function compile(W, wx, wy, lay){
     runs(ids).forEach(([a,b])=>{
       if (c.kind==='wall') walls.push({name:c.name||'Wall',x1,y1,x2,y2,s1:names[a],s2:names[b],n:num(c.n)||1,dx:num(c.dx)||0,dy:num(c.dy)||0});
       else if (c.kind==='ramp'){ if(a===b){ err.push(`Ramp "${c.name||ci+1}": give the floors as low~top (e.g. B1/F~G/F)`); return; }
-        zones.push({type:'dbl',name:c.name||'Ramp',x1,x2,y1,y2,s1:names[a],s2:names[b],head:'',svc:'',ramp:{dir:c.dir||'+X',grad:num(c.grad)||null}}); }
+        zones.push({type:'dbl',name:c.name||'Ramp',x1,x2,y1,y2,s1:names[a],s2:names[b],head:'',svc:'',ramp:{dir:c.dir||'+X',grad:num(c.grad)||null}});
+        if (c.rcol==='no') zones.push({type:'colfree',name:(c.name||'Ramp')+' (no column through)',x1,x2,y1,y2,s1:names[a],s2:names[b-1],head:'',svc:''}); }
       else zones.push({type:c.kind==='nocol'?'colfree':c.kind,name:c.name||KIND_NAME[c.kind],x1,x2,y1,y2,s1:names[a],s2:names[b],head:c.head??'',svc:c.svc??'',nocol:c.kind==='nocol'});
     }); });
   const res=(v,ax)=>{ const P=ax==='x'?px.pos:py.pos, labs=ax==='x'?xl:yl; const t=String(v??'').replace(/\s+/g,''); if(!t||t.includes(':')||t[0]==='@') return v;
@@ -730,6 +731,56 @@ function planSVG2(E,k,grp){
   const title=`${M.L[grp.k1].name}${grp.k2>grp.k1?' ~ '+M.L[grp.k2].name:''} FRAMING PLAN`;
   return {svg:`<svg viewBox="0 0 ${Wd} ${H}" width="100%" style="max-width:${Wd}px">${g}</svg>`,title};
 }
+function sectionLines(E){
+  // the most informative cut in each direction: through restricted zones, long-span / transfer members and ramps
+  const {M}=E; const g=M.grids.find(x=>x.cols)||M.grids[0]; const out=[];
+  [['X','y',g.gy],['Y','x',g.gx]].forEach(([dir,ax,gl])=>{ let best=null;
+    gl.pos.forEach((c,i)=>{ let sc=0; M.members.forEach(m=>{ if(m.dir===dir&&Math.abs((dir==='X'?m.y1:m.x1)-c)<TOL) sc+=3; });
+      M.zones.forEach(z=>{ if(['void','colfree','dbl','core'].includes(z.type)&&c>=(ax==='y'?z.y1:z.x1)-TOL&&c<=(ax==='y'?z.y2:z.x2)+TOL) sc+=z.ramp?4:2; });
+      if(!best||sc>best.sc) best={sc,c,lab:gl.labels[i]}; });
+    out.push({dir,c:best.c,lab:best.lab}); });
+  return out;
+}
+function sectionSVG(E,cut){
+  const {M,R,sc}=E, L=M.L, nL=M.nL; const along=cut.dir==='X'; const c=cut.c;
+  const z=[0]; for(let k=1;k<nL;k++) z[k]=z[k-1]+(L[k-1].h||0);
+  const gi=L.findIndex(l=>normF(l.name)===normF(W.floors.ground||'G/F')); const z0=gi>=0?z[gi]:0;
+  const ag=along?{pos:E.C.px.pos,labels:E.C.axl||E.C.xl}:{pos:E.C.py.pos,labels:E.C.ayl||E.C.yl};
+  const ps=along?M.xs:M.ys; const u0=Math.min(...ps,...ag.pos), u1=Math.max(...ps,...ag.pos), H=z[nL-1];
+  const S=Math.min(760/Math.max(u1-u0,1),520/Math.max(H,1)), pad=60, Wd=(u1-u0)*S+pad*2, Ht=H*S+pad*2;
+  const U=u=>pad+(u-u0)*S, V=h=>Ht-pad-h*S; let g='';
+  const hid='s'+Math.random().toString(36).slice(2,7);
+  g+=`<defs><pattern id="${hid}" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#d62828" stroke-width="1.1"/></pattern></defs>`;
+  const at=(u)=>along?[u,c]:[c,u];
+  // restricted zones / core cut by the section
+  M.zones.forEach(zn=>{ const a1=along?zn.y1:zn.x1, a2=along?zn.y2:zn.x2; if(c<a1-TOL||c>a2+TOL) return; const b1=along?zn.x1:zn.y1, b2=along?zn.x2:zn.y2;
+    if (zn.type==='core') g+=`<rect x="${U(b1)}" y="${V(z[zn.s2+1]??H)}" width="${(b2-b1)*S}" height="${(z[zn.s2+1]-z[zn.s1])*S}" fill="#eee" stroke="#555" stroke-width="2.5"/><text x="${U((b1+b2)/2)}" y="${V(z[zn.s2+1])-4}" text-anchor="middle" font-size="9">CORE</text>`;
+    else if (zn.ramp){ const d=zn.ramp.dir, up=(d==='+X'&&along)||(d==='+Y'&&!along), dn=(d==='-X'&&along)||(d==='-Y'&&!along);
+      if (up||dn) g+=`<line x1="${U(b1)}" y1="${V(z[up?zn.s1:zn.s2])}" x2="${U(b2)}" y2="${V(z[up?zn.s2:zn.s1])}" stroke="#1f4fd1" stroke-width="3"/><text x="${U((b1+b2)/2)}" y="${V((z[zn.s1]+z[zn.s2])/2)-6}" text-anchor="middle" font-size="9" fill="#1f4fd1">${esc(zn.name.toUpperCase())}</text>`;
+      else g+=`<rect x="${U(b1)}" y="${V(z[zn.s2])}" width="${(b2-b1)*S}" height="${(z[zn.s2]-z[zn.s1])*S}" fill="#e8f1ff" stroke="#1f4fd1" stroke-dasharray="4 3"/>`; }
+    else if (['void','colfree','dbl'].includes(zn.type)) g+=`<g class="ly-zone"><rect x="${U(b1)}" y="${V(z[zn.s2+1])}" width="${(b2-b1)*S}" height="${(z[zn.s2+1]-z[zn.s1])*S}" fill="url(#${hid})" fill-opacity=".45" stroke="#d62828" stroke-dasharray="5 3"/><text x="${U((b1+b2)/2)}" y="${V((z[zn.s1]+z[zn.s2+1])/2)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#b71c1c" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(zn.name.toUpperCase())}</text></g>`; });
+  // slabs
+  const cuts=[...new Set(ps.concat(ag.pos))].sort((a,b)=>a-b);
+  for(let k=0;k<nL;k++){ for(let i=0;i<cuts.length-1;i++){ const a=cuts[i], b=cuts[i+1]; if(b-a<1e-6) continue; const [x,y]=at((a+b)/2); if(M.slabAt(k,x,y)) g+=`<line x1="${U(a)}" y1="${V(z[k])}" x2="${U(b)}" y2="${V(z[k])}" stroke="#222" stroke-width="${k===0?3:2}"/>`; } }
+  // long-span / transfer members on this line
+  M.members.forEach(m=>{ if(m.dir!==cut.dir||Math.abs((along?m.y1:m.x1)-c)>TOL) return; const ch=R.ch[m.id]; if(!ch||!ch.sys) return; const a=along?m.x1:m.y1, b=along?m.x2:m.y2;
+    const col=ch.v==='fail'?'#d62828':ch.v==='marg'?'#e08a00':'#1a9e3f';
+    if (ch.sys==='RCWALL'||ch.sys==='STRUSS'){ const top=ch.where==='above'?z[m.k+1]:z[m.k], bot=ch.where==='above'?z[m.k]:z[m.k-1]; g+=`<rect x="${U(a)}" y="${V(top)}" width="${(b-a)*S}" height="${(top-bot)*S}" fill="${ch.sys==='RCWALL'?'#cfe8d6':'none'}" stroke="${col}" stroke-width="1.5"/>`;
+      if (ch.sys==='STRUSS'){ const n=Math.max(2,Math.round((b-a)/3)); for(let j=0;j<n;j++){ const xa=a+(b-a)*j/n, xb=a+(b-a)*(j+1)/n; g+=`<line x1="${U(xa)}" y1="${V(j%2?top:bot)}" x2="${U(xb)}" y2="${V(j%2?bot:top)}" stroke="${col}"/>`; } } }
+    else { const D=ch.D||0.5; g+=`<rect x="${U(a)}" y="${V(z[m.k])}" width="${(b-a)*S}" height="${Math.max(2,D*S)}" fill="${col}" fill-opacity=".55" stroke="${col}"/>`; }
+    if (ch.tag) g+=`<text x="${U((a+b)/2)}" y="${V(z[m.k])+Math.max(10,(ch.D||0.5)*S+10)}" text-anchor="middle" font-size="9" font-weight="700" fill="${col}">${ch.tag}</text>`; });
+  if (R.used.has('PLATE')) Object.values(M.levelInfo).forEach(li=>{ if(!li.carries||!li.plate) return; const t=R.checks.find(cc=>cc.cat==='Transfer plate'&&cc.where===L[li.k].name); if(!t) return; const xs=li.pts.map(p=>along?p.x:p.y); g+=`<rect x="${U(Math.min(...xs)-1)}" y="${V(z[li.k])}" width="${(Math.max(...xs)-Math.min(...xs)+2)*S}" height="${t.need*S}" fill="#1a9e3f" fill-opacity=".35" stroke="#1a9e3f"/>`; });
+  // columns on the cut line, storey by storey (with offsets)
+  M.pts.forEach(p=>{ if(Math.abs((along?p.y:p.x)-c)>TOL) return; const o=R.offsets[p.id]||{}; const u=(along?p.x+(o.dx||0):p.y+(o.dy||0));
+    for(let s=0;s<nL-1;s++){ const st=M.col[s][p.id]; if(!M.present(st)||st==='core') continue; const w=Math.max(2,((R.colSize[p.id]||[])[s]||{side:0.5}).side*S);
+      g+=`<rect x="${U(u)-w/2}" y="${V(z[s+1])}" width="${w}" height="${(z[s+1]-z[s])*S}" fill="#fff" stroke="#111"/>`; } });
+  // ground, levels, grid
+  g+=`<line x1="${pad-30}" y1="${V(z0)}" x2="${Wd-pad+30}" y2="${V(z0)}" stroke="#7a5" stroke-width="1" stroke-dasharray="10 4"/><text x="${Wd-pad+30}" y="${V(z0)+11}" text-anchor="end" font-size="8.5" fill="#5a3">GROUND</text>`;
+  for(let k=0;k<nL;k++) g+=`<text x="${pad-8}" y="${V(z[k])+3}" text-anchor="end" font-size="9.5" font-weight="700">${esc(L[k].name)}</text><text x="${Wd-pad+8}" y="${V(z[k])+3}" font-size="8.5" fill="#555">${(z[k]-z0>=0?'+':'')}${f2(z[k]-z0)}</text>`;
+  ag.pos.forEach((p,i)=>{ g+=`<line x1="${U(p)}" y1="${pad-8}" x2="${U(p)}" y2="${Ht-pad+10}" stroke="#9aa" stroke-width=".6" stroke-dasharray="9 3 2 3"/><circle cx="${U(p)}" cy="${Ht-pad+22}" r="9" fill="#fff" stroke="#333"/><text x="${U(p)}" y="${Ht-pad+26}" text-anchor="middle" font-size="10">${esc(ag.labels[i])}</text>`; });
+  return `<svg viewBox="0 0 ${Wd} ${Ht}" width="100%" style="max-width:${Wd}px">${g}</svg>`;
+}
+function sectionsHTML(E){ return sectionLines(E).map(cut=>`<div class="planbox"><div class="planimg">${sectionSVG(E,cut)}<div class="ptitle">SECTION ${cut.dir==='X'?'A-A':'B-B'} (ALONG GRID ${esc(String(cut.lab))})</div></div></div>`).join(''); }
 const LEGEND=`<div class="legend"><b>LEGEND:</b>
 <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" fill="#fff" stroke="#555" stroke-width="3"/></svg>SERVICE CORE</span>
 <span><svg width="14" height="14"><rect x="2" y="2" width="10" height="10" fill="#fff" stroke="#111"/><path d="M2 2L12 12M12 2L2 12" stroke="#111"/></svg>COLUMN ABOVE &amp; BELOW</span>
@@ -789,7 +840,7 @@ function renderSteps(){
   }
   if (s===4){
     B.innerHTML=`<h2>Step 4 — Cores and constraints</h2><div class="hint">Positions by grid: <code>1~2</code>, <code>3+5~5</code> (5 m beyond line 3), <code>@12.5</code> (absolute). Floors: list, range, or a floor-type name; blank = all floors. Cores are rigid supports and are not calculated. Wall rows: X/Y give the first wall (<code>T:T1</code> to refer to grid T), with count and dx / dy. Ramp: X / Y = ramp extent, Floors = <code>low~top</code> (e.g. <code>B1/F~G/F</code>), direction it rises, max. gradient (blank = setting).</div><div id="cons"></div>`;
-    tableI(W.cons,[{k:'kind',l:'Type',t:'sel',o:KINDS},{k:'name',l:'Name',w:'120px'},{k:'x',l:'X',w:'80px'},{k:'y',l:'Y',w:'80px'},{k:'floors',l:'Floors',w:'100px'},{k:'head',l:'Headroom (void)',w:'50px'},{k:'svc',l:'Services',w:'45px'},{k:'n',l:'Count',w:'40px'},{k:'dx',l:'dx',w:'40px'},{k:'dy',l:'dy',w:'40px'},{k:'dir',l:'Ramp rises',t:'sel',o:[['+X','+X'],['-X','−X'],['+Y','+Y'],['-Y','−Y']]},{k:'grad',l:'Ramp max 1:n',w:'40px'}],$('#cons'),re);
+    tableI(W.cons,[{k:'kind',l:'Type',t:'sel',o:KINDS},{k:'name',l:'Name',w:'120px'},{k:'x',l:'X',w:'80px'},{k:'y',l:'Y',w:'80px'},{k:'floors',l:'Floors',w:'100px'},{k:'head',l:'Headroom (void)',w:'50px'},{k:'svc',l:'Services',w:'45px'},{k:'n',l:'Count',w:'40px'},{k:'dx',l:'dx',w:'40px'},{k:'dy',l:'dy',w:'40px'},{k:'dir',l:'Ramp rises',t:'sel',o:[['+X','+X'],['-X','−X'],['+Y','+Y'],['-Y','−Y']]},{k:'grad',l:'Ramp max 1:n',w:'40px'},{k:'rcol',l:'Columns through ramp',t:'sel',o:[['yes','allowed'],['no','not allowed']]}],$('#cons'),re);
   }
   if (s===5){
     B.innerHTML=`<h2>Site and settings</h2><div class="row">${fieldI('Ground level mPD',W.site,'ground','60px')}${fieldI('Groundwater mPD',W.site,'gwl','60px')}${fieldI('Rockhead mPD',W.site,'rock','60px')}${fieldI('Base slab / pile cap thk (m)',W.site,'raft','50px')}<label>Adjoining buildings<input type="checkbox" data-k="adjacent" ${W.site.adjacent?'checked':''}></label></div><h3>Rules (from your template, editable)</h3><div class="row" id="setRow">${Object.keys(DEF_SET).map(k=>fieldI(SET_LABELS[k],W.set,k,'55px')).join('')}</div><button id="rstSet">Restore defaults</button>`;
@@ -968,6 +1019,7 @@ function schemeHTML(E){
   h+=`<h3>A. Material</h3><p class="u">${sc.mat==='rc'?'RC is selected because it provides high strength / low cost structure with good rigidity and robustness; durable and resists weathering; low maintenance cost.':'Steel is selected because of its high strength to weight ratio, simplicity of assembly, and light weight which reduces foundation cost.'}</p>`;
   h+=`<h3>B. Floor plans</h3>${LEGEND}`;
   groups.forEach(g=>{ const p=planSVG2(E,g.k1,g); h+=`<div class="planbox"><div class="planimg">${p.svg}<div class="ptitle">${esc(p.title)}</div>${planNotes(E,g)}</div><div class="side">${keyPlan(M,g)}${planSide(E,g)}</div></div>`; });
+  h+=`<h3>Sections</h3>`+sectionsHTML(E);
   h+=`<h3>Member summary</h3><table class="mini"><tr><th>Floor type</th><th>Slab</th><th>Secondary beam</th><th>Main beam</th><th>Zone</th></tr>${R.typ.map(t=>`<tr><td>${esc(t.type)} (${esc(t.floors)})</td><td>${sc.mat==='rc'?W.set.slabRC:W.set.slabComp} THK @ ${f2(t.ls)} m</td><td>${esc(t.sec)}</td><td>${esc(t.main)}</td><td>${f0(t.zone*1000)}</td></tr>`).join('')}</table>`;
   h+=`<h3>Feasibility (your template rules)</h3><table class="mini"><tr><th></th><th>Item</th><th>Where</th><th>Check</th><th>Ratio</th><th>If slightly off</th></tr>${R.checks.slice().sort((a,b)=>V_RANK[b.v]-V_RANK[a.v]).map(c=>`<tr class="v-${c.v}"><td>${V_ICON[c.v]}</td><td>${esc(c.item)}</td><td>${esc(c.where)}</td><td>${esc(c.calc)}</td><td>${c.ratio>0?f2(c.ratio):''}</td><td>${c.v==='marg'?esc(c.fix):''}</td></tr>`).join('')}</table>`;
   const tr=[...R.used].filter(u=>['RCWALL','PLATE','INCL','HANG','STRUSS','PT'].includes(u));
