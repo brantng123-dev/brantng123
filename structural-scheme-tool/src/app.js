@@ -175,7 +175,8 @@ function compile(W, wx, wy, lay){
     const m=t.match(/^(.+?)([+-]\d+(?:\.\d+)?)?$/); if(!m) return v; let i=labs.indexOf(m[1]); if(i<0) i=labs.findIndex(l=>l.toUpperCase()===m[1].toUpperCase()); if(i<0) return v; return '@'+(+(P[i]+(m[2]?+m[2]:0)).toFixed(4)); };
   zones.forEach(z=>{ z.x1=res(z.x1,'x'); z.x2=res(z.x2,'x'); z.y1=res(z.y1,'y'); z.y2=res(z.y2,'y');
     if (z.partsSp){ const toNum=v=>{ const t=String(v).replace('@',''); return num(t); }; const pp=(sp,a)=>{ const l=String(sp).split(/[,\s]+/).map(num).filter(v=>v>0); if(!l.length) return null; let v=toNum(a); if(v===null) return null; const out=[v]; l.forEach(d=>{ v+=d; out.push(+v.toFixed(3)); }); return out; };
-      z.parts={x:pp(z.partsSp.x,z.x1),y:pp(z.partsSp.y,z.y1)}; delete z.partsSp; } });
+      const fit=(P,a,b)=>{ if(!P) return null; const lo=toNum(a), hi=toNum(b); P=P.filter(v=>v<hi-TOL); P.push(hi); return P; };
+      z.parts={x:fit(pp(z.partsSp.x,z.x1),z.x1,z.x2),y:fit(pp(z.partsSp.y,z.y1),z.y1,z.y2)}; delete z.partsSp; } });
   walls.forEach(w=>{ w.x1=res(w.x1,'x'); w.x2=res(w.x2,'x'); w.y1=res(w.y1,'y'); w.y2=res(w.y2,'y'); });
   let sxl=xl, syl=yl;
   const gDef=(nm,g,s1,s2)=>({name:nm,xLabels:g.x.labels.join(','),xSp:dpos(g.x),yLabels:g.y.labels.join(','),ySp:dpos(g.y),ox:g.x.pos[0],oy:g.y.pos[0],s1,s2,cols:true});
@@ -368,7 +369,7 @@ function* evalGen(W){
   for (const lay of todo){ const alts=altsOf(lay);
     for (const mat of ['rc','st']){ const es=out.filter(e=>e.lay===lay&&e.sc.mat===mat&&feasibleE(e)); if(!es.length) continue;
       // a transfer that only carries the top storey (e.g. one roof column) is not worth a transfer structure
-      const carried=maxCarried(es[0].M); if (carried<2){ es.forEach(e=>{ e.R.meaningless=`Not needed: the transferred columns carry only ${carried?'the top storey':'nothing'} — use a long-span roof / plant-floor member instead.`; }); continue; }
+      const carried=maxCarried(es[0].M); if (carried<2){ es.forEach(e=>{ e.R.meaningless=(carried?'Not needed: the transferred columns carry only the top storey — use a long-span roof / plant-floor member instead.':'Not needed: no column is actually transferred in this layout.'); }); continue; }
       // needed = the alternative fails, or the transfer / grid change saves long-span members on at least two floors
       const own=lsFloors(es[0].M); const hit=alts.find(a=>{ const r=viableAlt(a.lay,mat); return r.ok&&r.ls-own<2; });
       if (hit) es.forEach(e=>{ e.R.meaningless=`Not needed: a ${mat==='rc'?'RC':'steel'} scheme also works with ${hit.what}, with long-span members on about as many floors.`; });
@@ -990,7 +991,14 @@ function prosCons(e){
   return {P,C};
 }
 function recHTML(L){
-  const r=recPair(L); if(!r) return `<div class="card rec fail"><b>No viable scheme found.</b></div>`;
+  const r=recPair(L); if(!r){
+    const app=L.filter(e=>e.R.applicable); const cnt=new Map();
+    app.forEach(e=>{ const seen=new Set(); e.R.checks.filter(c=>c.v==='fail').forEach(c=>{ const k=c.cat+' — '+c.item.replace(/^G\d+: /,'').replace(/[\d,.]+( x [\d,.]+)?/g,'#').slice(0,70); if(seen.has(k)) return; seen.add(k); const o=cnt.get(k)||{n:0,ex:c}; o.n++; cnt.set(k,o); }); if(e.R.meaningless&&e.R.worst!=='fail'){ const k='Not needed — '+e.R.meaningless.slice(0,70); const o=cnt.get(k)||{n:0,ex:{item:e.R.meaningless,where:'',calc:''}}; o.n++; cnt.set(k,o); } });
+    const top=[...cnt.values()].sort((a,b)=>b.n-a.n).slice(0,6);
+    const near=app.map(e=>({e,n:e.R.checks.filter(c=>c.v==='fail').length})).filter(x=>x.n>0).sort((a,b)=>a.n-b.n).slice(0,4);
+    return `<div class="card rec fail"><b>No viable scheme found.</b> ${app.length} applicable scheme / layout combinations were checked. Most common reasons:
+      <ul>${top.map(t=>`<li><b>${t.n}×</b> ${esc(t.ex.item)}${t.ex.where?` — ${esc(t.ex.where)}`:''}${t.ex.calc?`<div class="note">${esc(t.ex.calc)}</div>`:''}</li>`).join('')}</ul>
+      ${near.length?`<div class="note">Closest: ${near.map(x=>`<a href="#" data-go="${x.e.sc.id}">${esc(x.e.sc.id)}</a> (${x.n} failing check${x.n>1?'s':''})`).join(', ')} — click to see its plans and the failing items.</div>`:''}</div>`; }
   if (!r.b) return `<div class="card rec marg"><b>Only ${r.a.sc.mat==='rc'?'RC':'steel'} schemes are viable</b> — no ${r.a.sc.mat==='rc'?'steel':'RC'} scheme passes.</div>`;
   const ok=r.d.length>0, as=r.as, sc=aScore(as), mx=aScore(as.map(x=>({...x,on:true})));
   const anyPair=r.rc.some(a=>r.stl.some(b=>distinctBy(a,b).length));

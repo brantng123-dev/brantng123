@@ -209,7 +209,8 @@ function buildModel(S){
         c.sort((p,q)=>(p[3]-p[2])-(q[3]-q[2])); if(c.length) out.push(c[0]);
       }
       // a missing column that carries nothing only needs one beam: keep the shorter direction
-      if (!t.carries&&out.length===2&&!out[0][4]&&!out[1][4]){ const sp=o=>o[3]-o[2]; out.splice(sp(out[0])<=sp(out[1])?1:0,1); }
+      // one beam is enough: keep the shorter direction (for a carried column too — a 36 m girder is never chosen over a 14 m one)
+      if (out.length===2&&!out[0][4]&&!out[1][4]){ const sp=o=>o[3]-o[2]; out.splice(sp(out[0])<=sp(out[1])?1:0,1); }
       out.forEach(([dir,c,a,b,cant])=>{ const m=mkMember(k,dir,c,a,b,t,cant,secondary); if(!t.ms.includes(m.id)) t.ms.push(m.id); });
       return out.length>0;
     };
