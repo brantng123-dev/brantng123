@@ -62,7 +62,7 @@ function buildModel(S){
     const nm=z.name||ZONE_NAME[z.type]||'Zone';
     if ([x1,x2,y1,y2].some(v=>v===null)){err.push(`Zone "${nm}": grid position not recognised (e.g. 3, B, 3+5, T:T2, @12.5)`);return;}
     const r=range(z.s1,z.s2,`Zone "${nm}"`); if(!r) return;
-    zones.push({src:zi,type:z.type,name:nm,x1:Math.min(x1,x2),x2:Math.max(x1,x2),y1:Math.min(y1,y2),y2:Math.max(y1,y2),s1:r[0],s2:r[1],head:num(z.head),svc:num(z.svc)});
+    zones.push({src:zi,type:z.type,name:nm,x1:Math.min(x1,x2),x2:Math.max(x1,x2),y1:Math.min(y1,y2),y2:Math.max(y1,y2),s1:r[0],s2:r[1],head:num(z.head),svc:num(z.svc),ramp:z.ramp||null});
   });
   // Walls
   const walls=[];
