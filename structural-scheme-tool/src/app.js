@@ -251,10 +251,13 @@ function* layoutGen(W){
     let bl=[...mand].sort((a,b)=>a-b); [...pref].sort((a,b)=>a-b).forEach(v=>{ if(bl.every(b=>Math.abs(b-v)>=minSp-1e-6)) bl.push(v); }); bl.sort((a,b)=>a-b);
     [6,7.5,8,8.4,9,10,11,12,13.5,15,16.5,18,20].forEach(t=>{ const out=[bl[0]]; for(let i=0;i<bl.length-1;i++){ const L=bl[i+1]-bl[i]; let n=Math.max(1,Math.round(L/t)); while(n>1&&Math.min(...div(L,n))<minSp-1e-6) n--; seq(bl[i],div(L,n)).slice(1).forEach(v=>out.push(v)); } push(out,'aligned to core / zone edges'); });
     // keep a varied short list: one per (number of bays, longest bay), preferring the simplest kind
+    // practical spans first (about 7.5 – 12 m; over the steel limit last), room partitions and the question's grid first of all
     const pri={'on room partitions':-1,arch:0,'equal bays':0,'aligned to core / zone edges':1}; const seen=new Set(), keep=[];
+    const smax=num(st.spanSt)||18, pen=o=>{ const m=Math.max(...bays(o.pos)); return (m>smax+1e-6?5:0)+(m<6?1:0)+(m<7.5?(7.5-m)/5:m>12?(m-12)/5:0)+(o.kind.startsWith('cantilever')?0.2:0); };
     const add=(o,cap)=>{ const k=(o.pos.length)+'|'+Math.round(Math.max(...bays(o.pos))); if(!seen.has(k)&&keep.length<cap){ seen.add(k); keep.push(o); } };
-    sets.filter(o=>!o.kind.startsWith('cantilever')).sort((a,b)=>(pri[a.kind]??3)-(pri[b.kind]??3)).forEach(o=>add(o,maxAx-2));
-    sets.filter(o=>o.kind.startsWith('cantilever')).forEach(o=>add(o,maxAx));
+    const ord=sets.slice().sort((a,b)=>Math.min(0,pri[a.kind]??3)-Math.min(0,pri[b.kind]??3)||pen(a)-pen(b)+((pri[a.kind]??3)-(pri[b.kind]??3))*0.3);
+    ord.filter(o=>!o.kind.startsWith('cantilever')).forEach(o=>add(o,maxAx-1));
+    ord.filter(o=>o.kind.startsWith('cantilever')).forEach(o=>add(o,maxAx));
     return keep.map(o=>{ const c=r(o.pos[0]-lo); const ct=c>0.01?`${f2(c).replace(/\.?0+$/,'')} cant. + `:''; const t=bayTxt(o.pos); return {...o,labels:labelsFor(o.pos,ax),txt:ct?ct+t.replace(/ = .*$/,'')+` + ${f2(c).replace(/\.?0+$/,'')} cant. = ${f1(hi-lo).replace(/\.0$/,'')} m`:t,maxB:Math.max(...bays(o.pos)),cant:c}; });
   };
   // stage-1 screen: column spacing per floor type, edge cantilever, member spans
@@ -300,9 +303,9 @@ function* layoutGen(W){
   M.zones.filter(z=>z.type==='colfree'&&z.s1>0&&z.s1>=gIdx).forEach(z=>splits.add(z.s1)); // a zone starting above (e.g. rooms from 3/F)
   const bandC=[]; let bd=0; const sub=(a,b)=>a.every(v=>b.some(w=>Math.abs(v-w)<TOL));
   const okSplits=[...splits].filter(u=>u>=1&&ns-u>=2).sort((a,b)=>a-b);
-  const nBand=okSplits.length*16*16;
+  const nBand=okSplits.length*30*30;
   for (const u of okSplits){ const lo=[], up=[]; for(let s=0;s<u;s++) lo.push(s); for(let s=u;s<ns;s++) up.push(s);
-    const LX=axisC('x',lo,4), LY=axisC('y',lo,4), UX=axisC('x',up,4), UY=axisC('y',up,4);
+    const LX=axisC('x',lo,6), LY=axisC('y',lo,5), UX=axisC('x',up,6), UY=axisC('y',up,5);
     for (const lx of LX) for (const ly of LY) for (const ux of UX) for (const uy of UY){
       if ((sub(ux.pos,lx.pos)&&sub(uy.pos,ly.pos))||(sub(lx.pos,ux.pos)&&sub(ly.pos,uy.pos))) continue;   // same grid in both bands → not two-band
       const lay={band:{u,lower:{x:lx,y:ly},upper:{x:ux,y:uy}},bands:[{from:0,g:{x:lx,y:ly}},{from:u,g:{x:ux,y:uy}}],tmode:'stop',nx:lx.pos.length-1,ny:ly.pos.length-1,gx:lx,gy:ly,ux,uy,gkey:JSON.stringify([lx.pos,ly.pos,u,ux.pos,uy.pos])};
