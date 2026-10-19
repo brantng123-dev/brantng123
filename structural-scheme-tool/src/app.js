@@ -10,14 +10,14 @@ const DEF_SET = {
   tol:15, step:250, minSize:500,
   slabRC:150, slabComp:125, sdSlab:26, sdSec:23, sdMain:26, sdCant:7, cantRC:5, cantSt:7,
   kRC:20, kSt:17.8, ef:1.25, tf:1.5, nRC:27.7, nComp:39.95, fcuB:45, py:355, sdPT:20, plateRatio:6, wallRatio:6, inclMax:0.25,
-  slenderBraced:15, maxGrad:6, colGroups:3, zoneOffset:1, layouts:1, spRound:0.25, spanRC:12, spanSt:18, maxLayouts:30, maxBay:20, sdFlat:26, vcFlat:0.6
+  slenderBraced:15, maxGrad:6, colGroups:4, colPrefRC:1000, colPrefSt:750, zoneOffset:1, layouts:1, spRound:0.25, spanRC:12, spanSt:18, maxLayouts:30, maxBay:20, sdFlat:26, vcFlat:0.6
 };
 const SET_LABELS = {
   tol:'"Slightly off" tolerance (%)', step:'Size step (mm)', minSize:'Min. column size (mm)',
   slabRC:'RC slab thickness (mm)', slabComp:'Composite slab thickness (mm)', sdSlab:'Slab S/D limit', sdSec:'Secondary beam S/D (×10/L if L>10)', sdMain:'Main / transfer beam S/D (×10/L if L>10)', sdCant:'Cantilever S/D limit',
   cantRC:'RC cantilever max. span (m)', cantSt:'Steel cantilever max. span (m)',
   kRC:'RC load per floor (kPa)', kSt:'Steel WULS per floor (kPa)', ef:'Elastic factor (columns)', tf:'Transfer factor', nRC:'RC column N/Ac (fcu60, 2%)', nComp:'Composite column N/Ac', fcuB:'Beam fcu (MPa)', py:'Steel py (MPa)',
-  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', maxGrad:'Ramp: max. gradient 1 : n (default n)', layouts:'Generate column layouts (1 = yes, 0 = only the architectural grid)', spanRC:'RC: max. column spacing on the typical grid (m)', spanSt:'Steel: max. column spacing on the typical grid (m)', spRound:'Round column spacing to (m, 0 = exact division)', maxLayouts:'Max. column layouts fully checked', maxBay:'Max. column spacing tried (m)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column'
+  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', maxGrad:'Ramp: max. gradient 1 : n (default n)', layouts:'Generate column layouts (1 = yes, 0 = only the architectural grid)', spanRC:'RC: max. column spacing on the typical grid (m)', spanSt:'Steel: max. column spacing on the typical grid (m)', spRound:'Round column spacing to (m, 0 = exact division)', maxLayouts:'Max. column layouts fully checked', maxBay:'Max. column spacing tried (m)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 4 = two sizes (preferred size + one larger), 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column', colPrefRC:'RC preferred column size (mm)', colPrefSt:'Steel (encased) preferred column size (mm)'
 };
 const KINDS = [
   ['core','Core wall (rigid support)'],
@@ -26,6 +26,7 @@ const KINDS = [
   ['void','Atrium / void (no slab, no column)'],
   ['dbl','Double height (no slab, columns kept)'],
   ['ramp','Sloped slab / ramp (floors = low~top)'],
+  ['spacing','Min. column spacing zone (overrides the floor type)'],
   ['outside','No building'],
   ['keep','Columns must continue (transfer them)'],
   ['wall','Wall row (e.g. tower cross walls)']
@@ -161,6 +162,7 @@ function compile(W, wx, wy, lay){
     const [x1,x2]=rng2(c.x,bx.lo,bx.hi), [y1,y2]=rng2(c.y,by.lo,by.hi);
     runs(ids).forEach(([a,b])=>{
       if (c.kind==='wall') walls.push({name:c.name||'Wall',x1,y1,x2,y2,s1:names[a],s2:names[b],n:num(c.n)||1,dx:num(c.dx)||0,dy:num(c.dy)||0});
+      else if (c.kind==='spacing') zones.push({type:'spacing',name:c.name||'Spacing zone',x1,x2,y1,y2,s1:names[a],s2:names[b],head:'',svc:'',minSp:num(c.sp),spType:c.spt||'c'});
       else if (c.kind==='ramp'){ if(a===b){ err.push(`Ramp "${c.name||ci+1}": give the floors as low~top (e.g. B1/F~G/F)`); return; }
         zones.push({type:'dbl',name:c.name||'Ramp',x1,x2,y1,y2,s1:names[a],s2:names[b],head:'',svc:'',ramp:{dir:c.dir||'+X',grad:num(c.grad)||null,tr:c.rcol==='plate'}});
         if (c.rcol==='plate'){ zones.push({type:'colfree',name:(c.name||'Ramp')+' (no column below)',x1,x2,y1,y2,s1:names[a],s2:names[b-1],head:'',svc:''}); if(b<names.length) zones.push({type:'keep',name:(c.name||'Ramp')+' (columns land on ramp)',x1,x2,y1,y2,s1:names[b],s2:names[names.length-1],head:'',svc:''}); }
@@ -196,6 +198,9 @@ const SCHEMES=[
   {id:'S2',mat:'st',name:'STEEL COMPOSITE BEAM AND SLAB AND TRANSFER TRUSS SYSTEM WITH COLUMN AND BRACED CORE WALL',sys:['ST','STRUSS'],must:'STRUSS'},
   {id:'S3',mat:'st',name:'STEEL COMPOSITE BEAM AND SLAB SUPPORTED BY BRACED CORE WALL AND HANGER COLUMN IN TURN SUPPORTED BY STEEL TRUSS AT ROOF LEVEL',sys:['HANG','ST'],must:'HANG'}
 ];
+// required column spacing at a point: a spacing zone wins over the floor type
+function spReqAt(M,C,s,x,y){ const z=M.zones.find(z=>z.type==='spacing'&&z.minSp&&M.zAct(z,s)&&x>z.x1-TOL&&x<z.x2+TOL&&y>z.y1-TOL&&y<z.y2+TOL);
+  if (z) return {v:z.minSp,e:z.spType==='e',where:z.name,ti:null}; const t=W.types[C.typeOf[s]]||{}; const v=num(t.minSp); return v?{v,e:t.spType==='e',where:t.name,ti:C.typeOf[s]}:null; }
 const gridAt=(M,s)=>M.grids.filter(g=>g.cols).find(g=>s>=g.s1&&s<=g.s2)||M.grids[0];
 const pickSec=(list,Mreq,Ireq)=>list.slice().sort((a,b)=>a[1]-b[1]).find(r=>r[2]>=Mreq&&r[1]>=Ireq);
 const secDepth=n=>{ const m=String(n).match(/(\d+)x/); return m?+m[1]/1000:null; };
@@ -244,9 +249,9 @@ function* layoutGen(W){
   // stage-1 screen: column spacing per floor type, edge cantilever, member spans
   const screen=lay=>{ const Cl=compile(W,null,null,lay); if(Cl.err.length) return null; const Ml=buildModel(Cl.S); if(Ml.err.length) return null;
     let worstSp=Infinity;
-    for (let s=0;s<ns;s++){ const t=W.types[Cl.typeOf[s]]||{}; const need=num(t.minSp); const cols=Ml.pts.filter(p=>Ml.col[s][p.id]==='col'||Ml.col[s][p.id]==='edge');
-      if (need){ const lines=new Map(); cols.forEach(p=>{ [['x',p.y,p.x],['y',p.x,p.y]].forEach(([a,k,v])=>{ const key=a+Math.round(k*20); if(!lines.has(key)) lines.set(key,[]); lines.get(key).push(v); }); });
-        for (const arr of lines.values()){ arr.sort((a,b)=>a-b); for(let i=0;i<arr.length-1;i++){ const d=arr[i+1]-arr[i]-(t.spType==='e'?0.75:0); worstSp=Math.min(worstSp,d/need); if(d<need-1e-6) return null; } } }
+    for (let s=0;s<ns;s++){ const cols=Ml.pts.filter(p=>Ml.col[s][p.id]==='col'||Ml.col[s][p.id]==='edge');
+      { const lines=new Map(); cols.forEach(p=>{ [['x',p.y,p.x],['y',p.x,p.y]].forEach(([a,k,v])=>{ const key=a+Math.round(k*20); if(!lines.has(key)) lines.set(key,{a,k,vs:[]}); lines.get(key).vs.push(v); }); });
+        for (const ln of lines.values()){ const arr=ln.vs.sort((a,b)=>a-b); for(let i=0;i<arr.length-1;i++){ const m=(arr[i]+arr[i+1])/2; const rq=spReqAt(Ml,Cl,s,ln.a==='x'?m:ln.k,ln.a==='x'?ln.k:m); if(!rq) continue; const d=arr[i+1]-arr[i]-(rq.e?0.75:0); worstSp=Math.min(worstSp,d/rq.v); if(d<rq.v-1e-6) return null; } } }
       const fp=Ml.zones.filter(z=>z.type==='footprint'&&Ml.zAct(z,s)); if(!cols.length) continue;
       for (const z of fp){ const xs=cols.map(p=>p.x), ys=cols.map(p=>p.y); const c=Math.max(Math.min(...xs)-z.x1,z.x2-Math.max(...xs),Math.min(...ys)-z.y1,z.y2-Math.max(...ys)); if(c>7+1e-6) return null; } }
     if (Object.values(Ml.levelInfo).some(li=>li.unresolved&&li.unresolved.length)) return null;
@@ -523,9 +528,10 @@ function assess(W,sc,C,M){
   pts.forEach(p=>{ const cs=(colSize[p.id]||[]).filter(Boolean); if(!cs.length) return;
     let s0=-1, mxl=-1; colSize[p.id].forEach((c,s)=>{ if(c&&c.load>mxl){ mxl=c.load; s0=s; } });
     const [a,b]=neighbours(s0,p,'x'), [c,d]=neighbours(s0,p,'y'); const edge=[a,b,c,d].some(v=>v===null);
-    const mode=Math.round(num(st.colGroups)??3);
-    const g=mode===0?'C'+p.label:mode===1?'C1':(mode===3&&supportLabels.has(p.label))?'C3':edge?'C2':'C1';
-    ctype[p.id]=g; const G=groups[g]||(groups[g]={id:g,side:0,crit:null,count:0,edge,desc:g==='C1'&&mode!==1?'INTERIOR':g==='C2'?'EDGE / CORNER':g==='C3'?'SUPPORTING TRANSFER / LONG-SPAN':''});
+    const mode=Math.round(num(st.colGroups)??4), pref=(num(sc.mat==='rc'?st.colPrefRC:st.colPrefSt)||1000)/1000, req=Math.max(...cs.map(c=>c.side));
+    // mode 4: every column takes the preferred size; only columns that really need more become the second (larger) type
+    const g=mode===4?(req<=pref+1e-9?'C1':'C2'):mode===0?'C'+p.label:mode===1?'C1':(mode===3&&supportLabels.has(p.label))?'C3':edge?'C2':'C1';
+    ctype[p.id]=g; const G=groups[g]||(groups[g]={id:g,side:mode===4&&g==='C1'?pref:0,crit:null,count:0,edge,desc:mode===4?(g==='C1'?'TYPICAL':'HEAVY (EXCEEDS '+f0(pref*1000)+')'):g==='C1'&&mode!==1?'INTERIOR':g==='C2'?'EDGE / CORNER':g==='C3'?'SUPPORTING TRANSFER / LONG-SPAN':''});
     G.count++; colSize[p.id].forEach((c,s)=>{ if(!c) return; G.side=Math.max(G.side,c.side); if(!G.crit||c.load>G.crit.load) G.crit={...c,p,s}; });
   });
   pts.forEach(p=>{ const G=groups[ctype[p.id]]; if(!G) return; colSize[p.id].forEach(c=>{ if(c) c.side=G.side; });
@@ -568,18 +574,16 @@ function assess(W,sc,C,M){
   Object.values(offsets).forEach(o=>{ if(o.clash) add({cat:'Column clash',where:o.p.label,item:`COLUMN ${o.p.label} INSIDE ${o.z.name}`,calc:'column face enters restricted zone',need:2,have:1,ratio:2,strict:true,fix:'Move grid / remove column',pt:o.p.id});
     else if (o.dx||o.dy){ const w=o.why||[]; const edges=w.filter(t=>t.startsWith('building edge')); const short=[...w.filter(t=>!t.startsWith('building edge')),...(edges.length?['building edge ('+edges.map(t=>t.slice(15,-1)).filter((v,i,a)=>a.indexOf(v)===i).join(', ')+')']:[])];
       add({cat:'Column offset',where:o.p.label,item:`COLUMN ${o.p.label} OFFSET ${o.dx?`${o.dx>0?'+':''}${f0(o.dx*1000)} mm X `:''}${o.dy?`${o.dy>0?'+':''}${f0(o.dy*1000)} mm Y`:''}`,calc:`face aligned to ${short.join(' / ')}`,need:0,have:1,ratio:0,fix:''}); } });
-  // spacing rule per floor type
-  (W.types||[]).forEach((t,ti)=>{ const minSp=num(t.minSp); if(!minSp) return; let worst=null;
-    C.typeOf.forEach((x,s)=>{ if(x!==ti) return;
-      [['x',gx,'y'],['y',gy,'x']].forEach(([ax,g,oth])=>{
-        const lines=new Map(); pts.forEach(p=>{ if(!present(s,p)) return; const key=Math.round((ax==='x'?p.y:p.x)*20); if(!lines.has(key)) lines.set(key,[]); lines.get(key).push(p); });
-        lines.forEach(arr=>{ arr.sort((a,b)=>(ax==='x'?a.x-b.x:a.y-b.y)); for(let i=0;i<arr.length-1;i++){ const a=arr[i], b=arr[i+1];
-          const oa=offsets[a.id]?(ax==='x'?offsets[a.id].dx:offsets[a.id].dy):0, ob=offsets[b.id]?(ax==='x'?offsets[b.id].dx:offsets[b.id].dy):0;
-          const cc=(ax==='x'?b.x-a.x:b.y-a.y)+ob-oa; const wa=colSize[a.id][s]?.side||0, wb=colSize[b.id][s]?.side||0;
-          const val=t.spType==='e'?cc-wa/2-wb/2:cc; if(!worst||val<worst.val) worst={val,a,b,s,cc}; } });
-      }); });
-    if (worst) add({cat:'Column spacing',where:t.name,item:`MIN. ${t.spType==='e'?'CLEAR':'C/C'} SPACING ${f2(worst.val)} m (${worst.a.label}–${worst.b.label})`,calc:`required ≥ ${minSp} m ${t.spType==='e'?'clear':'c/c'}`,need:minSp,have:worst.val,ratio:minSp/worst.val,strict:true,fix:'',ti,minSp});
-  });
+  // column spacing: the floor type's requirement, replaced inside spacing zones; checked pair by pair at its mid-point
+  { const worstBy=new Map();
+    for (let s=0;s<nL-1;s++) [['x'],['y']].forEach(([ax])=>{
+      const lines=new Map(); pts.forEach(p=>{ if(!present(s,p)) return; const key=Math.round((ax==='x'?p.y:p.x)*20); if(!lines.has(key)) lines.set(key,[]); lines.get(key).push(p); });
+      lines.forEach(arr=>{ arr.sort((a,b)=>(ax==='x'?a.x-b.x:a.y-b.y)); for(let i=0;i<arr.length-1;i++){ const a=arr[i], b=arr[i+1];
+        const rq=spReqAt(M,C,s,(a.x+b.x)/2,(a.y+b.y)/2); if(!rq) continue;
+        const oa=offsets[a.id]?(ax==='x'?offsets[a.id].dx:offsets[a.id].dy):0, ob=offsets[b.id]?(ax==='x'?offsets[b.id].dx:offsets[b.id].dy):0;
+        const cc=(ax==='x'?b.x-a.x:b.y-a.y)+ob-oa; const wa=colSize[a.id][s]?.side||0, wb=colSize[b.id][s]?.side||0; const val=rq.e?cc-wa/2-wb/2:cc;
+        const w=worstBy.get(rq.where); if(!w||rq.v/val>w.ratio) worstBy.set(rq.where,{ratio:rq.v/val,val,a,b,s,rq}); } }); });
+    worstBy.forEach(w=>add({cat:'Column spacing',where:w.rq.where,item:`MIN. ${w.rq.e?'CLEAR':'C/C'} SPACING ${f2(w.val)} m (${w.a.label}–${w.b.label})`,calc:`required ≥ ${w.rq.v} m ${w.rq.e?'clear':'c/c'}${w.rq.ti===null?' (spacing zone)':''}`,need:w.rq.v,have:w.val,ratio:w.ratio,strict:true,fix:'',ti:w.rq.ti,minSp:w.rq.v})); }
   /* --- practical column spacing per material: a longer bay is accepted only where a restricted zone / core forces it --- */
   { const lim=sc.mat==='rc'?num(st.spanRC)||12:num(st.spanSt)||18; let worstB=null;
     M.grids.filter(g=>g.cols).forEach(g=>{ for(let i=0;i<g.gx.pos.length-1;i++) for(let j=0;j<g.gy.pos.length-1;j++){
@@ -650,7 +654,8 @@ function planSVG2(E,k,grp){
     const [ax,ay,bx2,by2]=d==='+X'?[X(z.x1)+8,cy,X(z.x2)-8,cy]:d==='-X'?[X(z.x2)-8,cy,X(z.x1)+8,cy]:d==='+Y'?[cx,Y(z.y1)+8,cx,Y(z.y2)-8]:[cx,Y(z.y2)-8,cx,Y(z.y1)+8];
     g+=`<g class="ly-zone"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${w}" height="${hh}" fill="#e8f1ff" stroke="#1f4fd1" stroke-dasharray="6 3"/><line x1="${ax}" y1="${ay}" x2="${bx2}" y2="${by2}" stroke="#1f4fd1" stroke-width="1.6" marker-end="url(#ar${id})"/><text x="${cx}" y="${cy-6}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#1f4fd1" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())} UP 1:${f1(rp.run/rp.rise)} (${esc(M.L[z.s1].name)} → ${esc(M.L[z.s2].name)})</text></g>`; });
   g+=`<defs><marker id="ar${id}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#1f4fd1"/></marker></defs>`;
-  let zl=0; M.zones.forEach(z=>{ const a=(k-1>=0&&M.zAct(z,k-1))||(k<=nL-2&&M.zAct(z,k)); if(!a||z.type==='footprint'||z.type==='core'||z.type==='outside'||z.type==='keep'||z.ramp) return; zl++;
+  let zl=0; M.zones.forEach(z=>{ const a=(k-1>=0&&M.zAct(z,k-1))||(k<=nL-2&&M.zAct(z,k)); if(!a||z.type==='footprint'||z.type==='core'||z.type==='outside'||z.type==='keep'||z.ramp) return;
+    if (z.type==='spacing'){ g+=`<g class="ly-sp"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="none" stroke="#7a3" stroke-width="1.2" stroke-dasharray="10 4"/><text x="${X(z.x1)+4}" y="${Y(z.y1)+12}" font-size="9" fill="#4a7a14">${esc(z.name.toUpperCase())}: MIN. ${z.minSp} m ${z.spType==='e'?'CLEAR':'C/C'}</text></g>`; return; } zl++;
     g+=`<g class="ly-zone"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#${id})" fill-opacity=".55" stroke="#d62828" stroke-width="1.2" stroke-dasharray="5 3"/><text x="${X((z.x1+z.x2)/2)}" y="${Y((z.y1+z.y2)/2)+16+(zl-1)*13}" text-anchor="middle" font-size="10" font-weight="700" fill="#b71c1c" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())}</text></g>`; });
   // grid
   const gr=gridAt(M,Math.max(0,k-1));
@@ -673,9 +678,11 @@ function planSVG2(E,k,grp){
   const line=(xa,ya,xb,yb,col,wd,dash)=>`<line x1="${X(xa)}" y1="${Y(ya)}" x2="${X(xb)}" y2="${Y(yb)}" stroke="${col}" stroke-width="${wd}" ${dash?`stroke-dasharray="${dash}"`:''}/>`;
   const flat=sc.floor==='flat';
   // main beams follow the (offset) column lines; RC main beams drawn to width as two dashed lines
-  const lo={x:new Map(),y:new Map()}; Object.values(R.offsets).forEach(o=>{ if(o.dx) lo.x.set(Math.round(o.p.x*20),o.dx); if(o.dy) lo.y.set(Math.round(o.p.y*20),o.dy); });
-  const ox=v=>v+(lo.x.get(Math.round(v*20))||0), oy=v=>v+(lo.y.get(Math.round(v*20))||0);
   const tyB=(()=>{ const ti=E.C.typeOf[Math.min(Math.max(k-1,0),E.C.typeOf.length-1)]; const t=R.typ.find(t=>t.type===(W.types[ti]||{}).name)||R.typ[0]; return t&&t.Bm?t.Bm:0; })();
+  // a column line that was pushed off the grid sits on a building / zone edge: the beam face is set flush with that edge
+  const bh=(sc.mat==='rc'&&tyB?tyB:0.3)/2;
+  const lo={x:new Map(),y:new Map()}; Object.values(R.offsets).forEach(o=>{ if(o.dx) lo.x.set(Math.round(o.p.x*20),Math.sign(o.dx)*bh); if(o.dy) lo.y.set(Math.round(o.p.y*20),Math.sign(o.dy)*bh); });
+  const ox=v=>v+(lo.x.get(Math.round(v*20))||0), oy=v=>v+(lo.y.get(Math.round(v*20))||0);
   const beam=(xa,ya,xb,yb,col,w)=>{ if(sc.mat!=='rc'||!w) return line(xa,ya,xb,yb,col,2); const h=w/2, v=Math.abs(xa-xb)<1e-9;
     return v?line(xa-h,ya,xb-h,yb,col,1,'5 3')+line(xa+h,ya,xb+h,yb,col,1,'5 3'):line(xa,ya-h,xb,yb-h,col,1,'5 3')+line(xa,ya+h,xb,yb+h,col,1,'5 3'); };
   if (!flat) gr.gy.pos.forEach(y=>{ for(let i=0;i<gr.gx.pos.length-1;i++){ const a=gr.gx.pos[i], b=gr.gx.pos[i+1]; if(!slabMid((a+b)/2,y)||inCore((a+b)/2,y)||memberGeo.has(`X${a},${y}`)) continue; g+=beam(ox(a),oy(y),ox(b),oy(y),'#1f4fd1',tyB); } });
@@ -720,7 +727,7 @@ function planSVG2(E,k,grp){
     if (clashPts.has(p.id)){ g+=`<rect x="${x-side/2-3}" y="${y-side/2-3}" width="${side+6}" height="${side+6}" fill="none" stroke="#d62828" stroke-width="2.5"/>`; ngTxt+=`<text x="${x}" y="${y+side/2+11}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#d62828" stroke="#fff" stroke-width="3" paint-order="stroke">✗ IN ZONE</text>`; }
   });
   // actual column spacing along each grid line (storey below this slab)
-  if (k-1>=0){ const s=k<=nL-2?k:k-1, tt=W.types[E.C.typeOf[s]]||{}, minSp=num(tt.minSp), clear=tt.spType==='e'; let sp='';
+  if (k-1>=0){ const s=k<=nL-2?k:k-1; let sp='';
     const cs=M.pts.filter(p=>M.present(M.col[s][p.id])), isCore=p=>M.col[s][p.id]==='core';
     const pos=p=>{ const o=R.offsets[p.id]||{}; return [p.x+(o.dx||0),p.y+(o.dy||0)]; };
     ['x','y'].forEach(ax=>{ const lines=new Map(); cs.forEach(p=>{ const key=Math.round((ax==='x'?p.y:p.x)*20); if(!lines.has(key)) lines.set(key,[]); lines.get(key).push(p); });
@@ -728,6 +735,7 @@ function planSVG2(E,k,grp){
         // a span over a stopped / transferred column is a long-span member (tagged G..), not a column spacing: no label
         { const gq=gridAt(M,s), gp=ax==='x'?gq.gx.pos:gq.gy.pos, va=ax==='x'?a.x:a.y, vb=ax==='x'?b.x:b.y; if(gp.some(v=>v>va+TOL&&v<vb-TOL)) continue; }
         const [ax1,ay1]=pos(a), [bx1,by1]=pos(b);
+        const rq=spReqAt(M,E.C,s,(a.x+b.x)/2,(a.y+b.y)/2), minSp=rq?rq.v:0, clear=rq?rq.e:false;
         const cc=ax==='x'?bx1-ax1:by1-ay1; const wa=(R.colSize[a.id][s]||{}).side||0, wb=(R.colSize[b.id][s]||{}).side||0; const val=clear?cc-wa/2-wb/2:cc;
         const ok=!minSp||val>=minSp-1e-9; const col=!minSp?'#555':ok?'#137333':'#c5221f'; const t=`${clear?'CLR ':''}${f0(val*1000)}`;
         if (ax==='x'){ const tx=X((ax1+bx1)/2), ty=Y((ay1+by1)/2)-4; sp+=`<text x="${tx}" y="${ty}" text-anchor="middle" font-size="8.5" fill="${col}" ${ok?'':'font-weight="700"'} stroke="#fff" stroke-width="2.5" paint-order="stroke">${t}</text>`; }
@@ -847,8 +855,8 @@ function renderSteps(){
     tableI(W.types,[{k:'name',l:'Name',w:'130px'},{k:'floors',l:'Floors',w:'110px'},{k:'x',l:'Extent X',w:'80px'},{k:'y',l:'Extent Y',w:'80px'},{k:'minSp',l:'Min. column spacing (m)',w:'55px'},{k:'spType',l:'Measured',t:'sel',o:[['c','c/c'],['e','clear']]},{k:'noWall',l:'No structural wall',t:'chk'}],$('#types'),re);
   }
   if (s===4){
-    B.innerHTML=`<h2>Step 4 — Cores and constraints</h2><div class="hint">Positions by grid: <code>1~2</code>, <code>3+5~5</code> (5 m beyond line 3), <code>@12.5</code> (absolute). Floors: list, range, or a floor-type name; blank = all floors. Cores are rigid supports and are not calculated. Wall rows: X/Y give the first wall (<code>T:T1</code> to refer to grid T), with count and dx / dy. Ramp: X / Y = ramp extent, Floors = <code>low~top</code> (e.g. <code>B1/F~G/F</code>), direction it rises, max. gradient (blank = setting).</div><div id="cons"></div>`;
-    tableI(W.cons,[{k:'kind',l:'Type',t:'sel',o:KINDS},{k:'name',l:'Name',w:'120px'},{k:'x',l:'X',w:'80px'},{k:'y',l:'Y',w:'80px'},{k:'floors',l:'Floors',w:'100px'},{k:'head',l:'Headroom (void)',w:'50px'},{k:'svc',l:'Services',w:'45px'},{k:'n',l:'Count',w:'40px'},{k:'dx',l:'dx',w:'40px'},{k:'dy',l:'dy',w:'40px'},{k:'dir',l:'Ramp rises',t:'sel',o:[['+X','+X'],['-X','−X'],['+Y','+Y'],['-Y','−Y']]},{k:'grad',l:'Ramp max 1:n',w:'40px'},{k:'rcol',l:'Columns at ramp',t:'sel',o:[['yes','pass through ramp'],['no','not in ramp (stop below)'],['plate','land on thickened ramp (inclined transfer plate)']]}],$('#cons'),re);
+    B.innerHTML=`<h2>Step 4 — Cores and constraints</h2><div class="hint">Positions by grid: <code>1~2</code>, <code>3+5~5</code> (5 m beyond line 3), <code>@12.5</code> (absolute). Floors: list, range, or a floor-type name; blank = all floors. Cores are rigid supports and are not calculated. Wall rows: X/Y give the first wall (<code>T:T1</code> to refer to grid T), with count and dx / dy. Spacing zone: X / Y / Floors + min. spacing — inside it this replaces the floor type's requirement (e.g. 8 m in the car park, 10 m in the shops on the same floor). Ramp: X / Y = ramp extent, Floors = <code>low~top</code> (e.g. <code>B1/F~G/F</code>), direction it rises, max. gradient (blank = setting).</div><div id="cons"></div>`;
+    tableI(W.cons,[{k:'kind',l:'Type',t:'sel',o:KINDS},{k:'name',l:'Name',w:'120px'},{k:'x',l:'X',w:'80px'},{k:'y',l:'Y',w:'80px'},{k:'floors',l:'Floors',w:'100px'},{k:'head',l:'Headroom (void)',w:'50px'},{k:'svc',l:'Services',w:'45px'},{k:'n',l:'Count',w:'40px'},{k:'dx',l:'dx',w:'40px'},{k:'dy',l:'dy',w:'40px'},{k:'dir',l:'Ramp rises',t:'sel',o:[['+X','+X'],['-X','−X'],['+Y','+Y'],['-Y','−Y']]},{k:'grad',l:'Ramp max 1:n',w:'40px'},{k:'sp',l:'Min. spacing (m)',w:'45px'},{k:'spt',l:'Spacing',t:'sel',o:[['c','c/c'],['e','clear']]},{k:'rcol',l:'Columns at ramp',t:'sel',o:[['yes','pass through ramp'],['no','not in ramp (stop below)'],['plate','land on thickened ramp (inclined transfer plate)']]}],$('#cons'),re);
   }
   if (s===5){
     B.innerHTML=`<h2>Site and settings</h2><div class="row">${fieldI('Ground level mPD',W.site,'ground','60px')}${fieldI('Groundwater mPD',W.site,'gwl','60px')}${fieldI('Rockhead mPD',W.site,'rock','60px')}${fieldI('Base slab / pile cap thk (m)',W.site,'raft','50px')}<label>Adjoining buildings<input type="checkbox" data-k="adjacent" ${W.site.adjacent?'checked':''}></label></div><h3>Rules (from your template, editable)</h3><div class="row" id="setRow">${Object.keys(DEF_SET).map(k=>fieldI(SET_LABELS[k],W.set,k,'55px')).join('')}</div><button id="rstSet">Restore defaults</button>`;
@@ -879,7 +887,7 @@ function planChecks(E,grp){
   const out=[];
   M.members.filter(m=>ks.includes(m.k)).forEach(m=>{ const c=R.ch[m.id]; if(!c) out.push({v:'fail',t:`${m.level} GRID ${m.lineLabel} (${m.ends.join('–')}): NO SYSTEM AVAILABLE`}); else if(c.tag&&c.v!=='pass') out.push({v:c.v,t:`${c.tag} ${m.level} GRID ${m.lineLabel} (${m.ends.join('–')}): ${c.txt} — ${memberWhy(c)} (span ${f1(m.span)} m)`}); });
   R.checks.forEach(c=>{ if(c.v==='pass') return; const tn=[...tnames].find(n=>c.where===n||c.where.startsWith(n+' (')||c.where.endsWith('('+n+')'));
-    if (c.cat==='Column spacing'){ if(unames.has(c.where)) out.push({v:c.v,t:`${c.item} — ${c.calc}`}); }
+    if (c.cat==='Column spacing'){ if(unames.has(c.where)||M.zones.some(z=>z.type==='spacing'&&z.name===c.where&&ks.some(k=>M.zAct(z,Math.min(k,M.nL-2))))) out.push({v:c.v,t:`${c.item} — ${c.calc}`}); }
     else if (tn&&!['Long span','Transfer'].includes(c.cat)) out.push({v:c.v,t:`${c.item} — ${c.calc}`});
     else if (c.cat==='Column clash'&&ks.some(k=>k-1>=0&&M.present(M.col[k-1][c.pt]))) out.push({v:c.v,t:`${c.item}`});
     else if (c.cat==='Column') out.push({v:c.v,t:`${c.item} — ${c.calc}`}); });
@@ -894,7 +902,7 @@ function planSide(E,grp){
   const row=(v,txt)=>`<div class="crow">${v?V_ICON[v]:'•'} ${txt}</div>`;
   let h=`<div class="cons"><div class="note">CONSTRAINTS (${esc(M.L[k].name)})</div>`;
   // restricted zones on this plan
-  const zs=M.zones.filter(z=>!['footprint','core','outside'].includes(z.type)&&((k-1>=0&&M.zAct(z,k-1))||(k<=M.nL-2&&M.zAct(z,k))));
+  const zs=M.zones.filter(z=>!['footprint','core','outside','spacing','keep'].includes(z.type)&&((k-1>=0&&M.zAct(z,k-1))||(k<=M.nL-2&&M.zAct(z,k))));
   h+=ly('zone','<b>Restricted zones</b>');
   if (!zs.length) h+=row(null,'none on this floor');
   zs.forEach(z=>{ const clash=R.checks.some(c=>c.cat==='Column clash'&&c.v==='fail'&&c.item.includes(z.name)); const nOff=Object.values(R.offsets).filter(o=>(o.why||[]).some(w=>w.includes(z.name))).length;
@@ -903,6 +911,7 @@ function planSide(E,grp){
   const sp=R.checks.find(c=>c.cat==='Column spacing'&&c.where===tu.name);
   h+=ly('sp',`<b>Column spacing</b> — ${esc(tu.name||'')} (numbers on plan)`);
   h+=row(sp?sp.v:null, tu.minSp?`required ≥ ${tu.minSp} m ${tu.spType==='e'?'clear':'c/c'}${sp?`; min. provided ${f2(sp.have)} m`:''}`:'no requirement');
+  M.zones.filter(z=>z.type==='spacing'&&M.zAct(z,Math.min(k,M.nL-2))).forEach(z=>{ const c=R.checks.find(x=>x.cat==='Column spacing'&&x.where===z.name); h+=row(c?c.v:null,`${esc(z.name)}: ≥ ${z.minSp} m ${z.spType==='e'?'clear':'c/c'}${c?`; min. ${f2(c.have)} m`:''}`); });
   // structural zone
   const ty=R.typ.find(x=>x.type===t.name); const z=M.depth[k];
   if (ty&&z) { const d=ty.flat?ty.flat.drop:Math.max(ty.Dm||0,ty.Ds||0); h+=`<div class="crow"><b>Structural zone</b></div>`+row(d<=z+1e-9?'pass':verdictOf(d/z,st.tol),`${f0(z*1000)} mm; ${ty.flat?'drop panel':'deepest beam'} ${f0(d*1000)} mm`); }
