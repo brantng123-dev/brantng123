@@ -824,12 +824,18 @@ function tableI(rows,cols,host,redraw){
   t.innerHTML='<tr>'+cols.map(c=>`<th>${esc(c.l)}</th>`).join('')+'<th></th></tr>';
   rows.forEach((r,ri)=>{ const tr=document.createElement('tr');
     cols.forEach(c=>{ const td=document.createElement('td'); let el;
+      if (c.t==='extra'){ // only the inputs that apply to this row's type, each with its own label
+        const fs=c.fields.filter(f=>f.kinds.includes(r.kind)); if(!fs.length){ td.innerHTML='<span class="note">—</span>'; tr.appendChild(td); return; }
+        td.className='xtra'; fs.forEach(f=>{ const lb=document.createElement('label'); lb.textContent=f.l+' '; let e;
+          if (f.t==='sel'){ e=document.createElement('select'); e.innerHTML=f.o.map(([v,tx])=>`<option value="${esc(v)}">${esc(tx)}</option>`).join(''); e.value=r[f.k]??f.o[0][0]; if(r[f.k]===undefined) r[f.k]=f.o[0][0]; e.onchange=()=>{r[f.k]=e.value;changedW();}; }
+          else { e=document.createElement('input'); e.value=r[f.k]??''; e.style.width=f.w||'50px'; e.placeholder=f.ph||''; e.oninput=()=>{r[f.k]=e.value;changedW();}; }
+          lb.appendChild(e); td.appendChild(lb); }); tr.appendChild(td); return; }
       if (c.t==='sel'){ el=document.createElement('select'); el.innerHTML=c.o.map(([v,tx])=>`<option value="${esc(v)}">${esc(tx)}</option>`).join(''); el.value=r[c.k]??c.o[0][0]; el.onchange=()=>{r[c.k]=el.value;changedW();redraw&&redraw();}; }
       else if (c.t==='chk'){ el=document.createElement('input'); el.type='checkbox'; el.checked=!!r[c.k]; el.onchange=()=>{r[c.k]=el.checked;changedW();}; }
       else { el=document.createElement('input'); el.value=r[c.k]??''; el.style.width=c.w||'90px'; el.placeholder=c.ph||''; el.oninput=()=>{r[c.k]=el.value;changedW();}; }
       td.appendChild(el); tr.appendChild(td); });
     const td=document.createElement('td'); const d=document.createElement('button'); d.textContent='✕'; d.title='Delete'; d.onclick=()=>{rows.splice(ri,1);changedW();redraw();}; const cp=document.createElement('button'); cp.textContent='⧉'; cp.title='Copy'; cp.onclick=()=>{rows.splice(ri+1,0,clone(r));changedW();redraw();}; td.append(cp,d); tr.appendChild(td); t.appendChild(tr); });
-  host.appendChild(t); const a=document.createElement('button'); a.textContent='+ Add row'; a.onclick=()=>{ const n={}; cols.forEach(c=>n[c.k]=c.t==='chk'?false:c.t==='sel'?c.o[0][0]:''); rows.push(n); changedW(); redraw(); }; host.appendChild(a);
+  host.appendChild(t); const a=document.createElement('button'); a.textContent='+ Add row'; a.onclick=()=>{ const n={}; cols.forEach(c=>{ if(c.t!=='extra') n[c.k]=c.t==='chk'?false:c.t==='sel'?c.o[0][0]:''; }); rows.push(n); changedW(); redraw(); }; host.appendChild(a);
 }
 function renderSteps(){
   const h=$('#steps'); const s=view.step;
@@ -857,7 +863,13 @@ function renderSteps(){
   }
   if (s===4){
     B.innerHTML=`<h2>Step 4 — Cores and constraints</h2><div class="hint">Positions by grid: <code>1~2</code>, <code>3+5~5</code> (5 m beyond line 3), <code>@12.5</code> (absolute). Floors: list, range, or a floor-type name; blank = all floors. Cores are rigid supports and are not calculated. Wall rows: X/Y give the first wall (<code>T:T1</code> to refer to grid T), with count and dx / dy. Spacing zone: X / Y / Floors + min. spacing — inside it this replaces the floor type's requirement (e.g. 8 m in the car park, 10 m in the shops on the same floor). Ramp: X / Y = ramp extent, Floors = <code>low~top</code> (e.g. <code>B1/F~G/F</code>), direction it rises, max. gradient (blank = setting).</div><div id="cons"></div>`;
-    tableI(W.cons,[{k:'kind',l:'Type',t:'sel',o:KINDS},{k:'name',l:'Name',w:'120px'},{k:'x',l:'X',w:'80px'},{k:'y',l:'Y',w:'80px'},{k:'floors',l:'Floors',w:'100px'},{k:'head',l:'Headroom (void)',w:'50px'},{k:'svc',l:'Services',w:'45px'},{k:'n',l:'Count',w:'40px'},{k:'dx',l:'dx',w:'40px'},{k:'dy',l:'dy',w:'40px'},{k:'dir',l:'Ramp rises',t:'sel',o:[['+X','+X'],['-X','−X'],['+Y','+Y'],['-Y','−Y']]},{k:'grad',l:'Ramp max 1:n',w:'40px'},{k:'sp',l:'Min. spacing (m)',w:'45px'},{k:'spt',l:'Spacing',t:'sel',o:[['c','c/c'],['e','clear']]},{k:'rcol',l:'Columns at ramp',t:'sel',o:[['yes','pass through ramp'],['no','not in ramp (stop below)'],['plate','land on thickened ramp (inclined transfer plate)']]}],$('#cons'),re);
+    tableI(W.cons,[{k:'kind',l:'Type',t:'sel',o:KINDS},{k:'name',l:'Name',w:'120px'},{k:'x',l:'X',w:'80px'},{k:'y',l:'Y',w:'80px'},{k:'floors',l:'Floors',w:'100px'},
+      {k:'_x',l:'Details for this type',t:'extra',fields:[
+        {k:'head',l:'Headroom (m)',kinds:['void','dbl'],w:'45px'},{k:'svc',l:'Services (m)',kinds:['void','dbl'],w:'45px'},
+        {k:'sp',l:'Min. spacing (m)',kinds:['spacing'],w:'45px'},{k:'spt',l:'measured',t:'sel',o:[['c','c/c'],['e','clear']],kinds:['spacing']},
+        {k:'dir',l:'Rises',t:'sel',o:[['+X','+X'],['-X','−X'],['+Y','+Y'],['-Y','−Y']],kinds:['ramp']},{k:'grad',l:'Max 1:',kinds:['ramp'],w:'35px',ph:String(W.set.maxGrad||6)},
+        {k:'rcol',l:'Columns',t:'sel',o:[['yes','pass through ramp'],['no','not in ramp (stop below)'],['plate','land on thickened ramp (inclined transfer plate)']],kinds:['ramp']},
+        {k:'n',l:'Count',kinds:['wall'],w:'35px'},{k:'dx',l:'dx',kinds:['wall'],w:'35px'},{k:'dy',l:'dy',kinds:['wall'],w:'35px'}]}],$('#cons'),re);
   }
   if (s===5){
     B.innerHTML=`<h2>Site and settings</h2><div class="row">${fieldI('Ground level mPD',W.site,'ground','60px')}${fieldI('Groundwater mPD',W.site,'gwl','60px')}${fieldI('Rockhead mPD',W.site,'rock','60px')}${fieldI('Base slab / pile cap thk (m)',W.site,'raft','50px')}<label>Adjoining buildings<input type="checkbox" data-k="adjacent" ${W.site.adjacent?'checked':''}></label></div><h3>Rules (from your template, editable)</h3><div class="row" id="setRow">${Object.keys(DEF_SET).map(k=>fieldI(SET_LABELS[k],W.set,k,'55px')).join('')}</div><button id="rstSet">Restore defaults</button>`;
