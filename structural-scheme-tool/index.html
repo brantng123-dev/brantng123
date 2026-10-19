@@ -1565,11 +1565,11 @@ function recHTML(L){
 }
 function appraisalHTML(L){
   const C0=L[0].C, M0=L[0].M;
-  const zrows=[]; let cur=null; for(let k=M0.nL-1;k>=1;k--){ const z=Math.round(M0.depth[k]*1000), name=M0.L[k-1].name; if(cur&&cur.z===z) cur.to=name; else { cur={from:name,to:name,z}; zrows.push(cur); } }
+  const zrows=[]; let cur=null; for(let k=M0.nL-1;k>=1;k--){ const z=Math.round(M0.depth[k]*1000), name=M0.L[k].name; if(cur&&cur.z===z) cur.to=name; else { cur={from:name,to:name,z}; zrows.push(cur); } }
   const uses=[...new Set(C0.lv.map(l=>String(l.use||'').toUpperCase()).filter(Boolean))];
   return `<div class="card"><h2>Design appraisal — ${esc(W.title)}</h2><table class="mini"><tr><th style="width:40%">Client requirement</th><th>Design implication</th></tr>
   <tr><td>1) COLUMN GRID</td><td>${(W.types||[]).map(t=>`${esc(t.floors||'all')}: ${t.minSp?`min. ${t.minSp} m ${t.spType==='e'?'CLEAR':'C/C'}`:'NO RESTRICTION'}`).join('<br>')}${(W.cons||[]).filter(c=>c.kind==='colfree'||c.kind==='void'||c.kind==='nocol').map(c=>`<br>${esc(c.floors||'all')}: NO COLUMN IN ${esc((c.name||'').toUpperCase())}`).join('')}</td></tr>
-  <tr><td>2) MIN. HEADROOM → ALLOWABLE STRUCTURAL ZONE</td><td>${zrows.map(r=>`${esc(r.to)}${r.from!==r.to?' ~ '+esc(r.from):''}: <b>${f0(r.z)} mm</b>`).join('<br>')}</td></tr>
+  <tr><td>2) MIN. HEADROOM → ALLOWABLE STRUCTURAL ZONE<div class="note">depth available under each floor slab = F-to-F − headroom − services of the storey below it</div></td><td>${zrows.map(r=>`${esc(r.to)}${r.from!==r.to?' ~ '+esc(r.from):''} SLAB${r.from!==r.to?'S':''}: <b>${f0(r.z)} mm</b>`).join('<br>')}</td></tr>
   <tr><td>3) IMPOSED LOAD (kPa)</td><td>${uses.map(u=>`${esc(u)}: ${IMPOSED[u]??'—'}`).join('; ')}</td></tr>
   <tr><td>4) COLUMN LAYOUTS TRIED</td><td>${RES.lays.map(l=>`<b>${l.id}</b>: ${esc(l.short)}`).join('<br>')}</td></tr></table></div>`;
 }
