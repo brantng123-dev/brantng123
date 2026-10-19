@@ -163,7 +163,7 @@ function compile(W, wx, wy, lay){
     const [x1,x2]=rng2(c.x,bx.lo,bx.hi), [y1,y2]=rng2(c.y,by.lo,by.hi);
     runs(ids).forEach(([a,b])=>{
       if (c.kind==='wall') walls.push({name:c.name||'Wall',x1,y1,x2,y2,s1:names[a],s2:names[b],n:num(c.n)||1,dx:num(c.dx)||0,dy:num(c.dy)||0});
-      else if (c.kind==='periph') zones.push({type:'colfree',name:c.name||'Rooms',x1,x2,y1,y2,s1:names[a],s2:names[b],head:'',svc:'',periph:true});
+      else if (c.kind==='periph') zones.push({type:'colfree',name:c.name||'Rooms',x1,x2,y1,y2,s1:names[a],s2:names[b],head:'',svc:'',periph:true,partsSp:{x:String(c.px||''),y:String(c.py||'')}});
       else if (c.kind==='spacing') zones.push({type:'spacing',name:c.name||'Spacing zone',x1,x2,y1,y2,s1:names[a],s2:names[b],head:'',svc:'',minSp:num(c.sp),spType:c.spt||'c'});
       else if (c.kind==='ramp'){ if(a===b){ err.push(`Ramp "${c.name||ci+1}": give the floors as low~top (e.g. B1/F~G/F)`); return; }
         zones.push({type:'dbl',name:c.name||'Ramp',x1,x2,y1,y2,s1:names[a],s2:names[b],head:'',svc:'',ramp:{dir:c.dir||'+X',grad:num(c.grad)||null,tr:c.rcol==='plate'}});
@@ -173,7 +173,9 @@ function compile(W, wx, wy, lay){
     }); });
   const res=(v,ax)=>{ const P=ax==='x'?px.pos:py.pos, labs=ax==='x'?xl:yl; const t=String(v??'').replace(/\s+/g,''); if(!t||t.includes(':')||t[0]==='@') return v;
     const m=t.match(/^(.+?)([+-]\d+(?:\.\d+)?)?$/); if(!m) return v; let i=labs.indexOf(m[1]); if(i<0) i=labs.findIndex(l=>l.toUpperCase()===m[1].toUpperCase()); if(i<0) return v; return '@'+(+(P[i]+(m[2]?+m[2]:0)).toFixed(4)); };
-  zones.forEach(z=>{ z.x1=res(z.x1,'x'); z.x2=res(z.x2,'x'); z.y1=res(z.y1,'y'); z.y2=res(z.y2,'y'); });
+  zones.forEach(z=>{ z.x1=res(z.x1,'x'); z.x2=res(z.x2,'x'); z.y1=res(z.y1,'y'); z.y2=res(z.y2,'y');
+    if (z.partsSp){ const toNum=v=>{ const t=String(v).replace('@',''); return num(t); }; const pp=(sp,a)=>{ const l=String(sp).split(/[,\s]+/).map(num).filter(v=>v>0); if(!l.length) return null; let v=toNum(a); if(v===null) return null; const out=[v]; l.forEach(d=>{ v+=d; out.push(+v.toFixed(3)); }); return out; };
+      z.parts={x:pp(z.partsSp.x,z.x1),y:pp(z.partsSp.y,z.y1)}; delete z.partsSp; } });
   walls.forEach(w=>{ w.x1=res(w.x1,'x'); w.x2=res(w.x2,'x'); w.y1=res(w.y1,'y'); w.y2=res(w.y2,'y'); });
   let sxl=xl, syl=yl;
   const gDef=(nm,g,s1,s2)=>({name:nm,xLabels:g.x.labels.join(','),xSp:dpos(g.x),yLabels:g.y.labels.join(','),ySp:dpos(g.y),ox:g.x.pos[0],oy:g.y.pos[0],s1,s2,cols:true});
@@ -224,7 +226,9 @@ function* layoutGen(W){
   const labelsFor=(pos,ax)=>{ const ap=archP[ax], al=archL[ax], cnt={}; return pos.map(p=>{ const i=ap.findIndex(a=>Math.abs(a-p)<TOL); if(i>=0) return al[i]; let j=0; ap.forEach((a,k)=>{ if(a<p) j=k; }); const d=p-ap[j]; return al[j]+(d>=0?'+':'')+d.toFixed(2); }); };
   const zAt=(z,s)=>M.zAct(z,s);
   // candidate positions along one axis for the storeys ss
-  const axisC=(ax,ss,maxAx=8)=>{
+  // minimum spacing for the storeys of one band (a podium and a tower may differ)
+  const minSpOf=ss=>Math.max(0,...ss.map(s=>{ const t=W.types[C.typeOf[s]]||{}; return (num(t.minSp)||0)+(num(t.minSp)&&t.spType==='e'?1:0); }));
+  const axisC=(ax,ss,maxAx=8)=>{ const minSp=minSpOf(ss);
     const fps=M.zones.filter(z=>z.type==='footprint'&&ss.some(s=>zAt(z,s)));
     const lo=r(Math.min(...fps.map(z=>ax==='x'?z.x1:z.y1))), hi=r(Math.max(...fps.map(z=>ax==='x'?z.x2:z.y2)));
     const inR=v=>v>lo-TOL&&v<hi+TOL; const sets=[]; const push=(pos,kind)=>{ pos=pos.map(r); if(pos.length<2) return; const b=bays(pos); if(b.some(v=>v>maxBay+1e-6)) return; if(!sets.some(o=>o.pos.length===pos.length&&o.pos.every((v,i)=>Math.abs(v-pos[i])<TOL))) sets.push({pos,kind}); };
@@ -237,13 +241,16 @@ function* layoutGen(W){
     const seq=(a,bs)=>{ const o=[a]; bs.forEach(v=>o.push(o.at(-1)+v)); return o; };
     const cg=Math.max(0,num(st.cantGrid)??2.5), cOpts=[...new Set([0,cg>=2.5?Math.round(cg/2/0.25)*0.25:null,cg].filter(v=>v!==null&&v>=0))];
     for (const c of cOpts){ const L=hi-lo-2*c; if(L<=0) continue; for(let n=1;n<=40;n++){ const ex=L/n; if(ex<minSp-1e-6) break; if(ex>maxBay+1e-6) continue; const bs=div(L,n); if(Math.min(...bs)<minSp-1e-6) continue; push(seq(lo+c,bs),c?`cantilever ${c} m`:'equal bays'); } }
+    // grids on room partitions: every k-th partition with spacing >= the minimum (periphery zones covering the full length)
+    M.zones.filter(z=>z.periph&&z.parts&&z.parts[ax]&&ss.some(s=>zAt(z,s))).forEach(z=>{ const P=z.parts[ax]; if(Math.abs(P[0]-lo)>TOL||Math.abs(P.at(-1)-hi)>TOL) return;
+      [0,1,2].forEach(extra=>{ const need=Math.max(minSp,0.01)+extra*1.5; const out=[P[0]]; for(let i=1;i<P.length;i++){ if(P[i]-out.at(-1)>=need-1e-6&&(P.at(-1)-P[i]>=need-1e-6||i===P.length-1)) out.push(P[i]); } if(Math.abs(out.at(-1)-P.at(-1))>TOL) out[out.length-1]=P.at(-1); push(out,'on room partitions'); }); });
     // aligned to footprint / core / restricted-zone edges
     const mand=new Set([lo,hi]), pref=new Set();
     M.zones.filter(z=>ss.some(s=>zAt(z,s))).forEach(z=>{ const a=ax==='x'?[z.x1,z.x2]:[z.y1,z.y2]; a.map(r).filter(inR).forEach(v=>(z.type==='footprint'||z.type==='core'?mand:pref).add(v)); });
     let bl=[...mand].sort((a,b)=>a-b); [...pref].sort((a,b)=>a-b).forEach(v=>{ if(bl.every(b=>Math.abs(b-v)>=minSp-1e-6)) bl.push(v); }); bl.sort((a,b)=>a-b);
     [6,7.5,8,8.4,9,10,11,12,13.5,15,16.5,18,20].forEach(t=>{ const out=[bl[0]]; for(let i=0;i<bl.length-1;i++){ const L=bl[i+1]-bl[i]; let n=Math.max(1,Math.round(L/t)); while(n>1&&Math.min(...div(L,n))<minSp-1e-6) n--; seq(bl[i],div(L,n)).slice(1).forEach(v=>out.push(v)); } push(out,'aligned to core / zone edges'); });
     // keep a varied short list: one per (number of bays, longest bay), preferring the simplest kind
-    const pri={arch:0,'equal bays':0,'aligned to core / zone edges':1}; const seen=new Set(), keep=[];
+    const pri={'on room partitions':-1,arch:0,'equal bays':0,'aligned to core / zone edges':1}; const seen=new Set(), keep=[];
     const add=(o,cap)=>{ const k=(o.pos.length)+'|'+Math.round(Math.max(...bays(o.pos))); if(!seen.has(k)&&keep.length<cap){ seen.add(k); keep.push(o); } };
     sets.filter(o=>!o.kind.startsWith('cantilever')).sort((a,b)=>(pri[a.kind]??3)-(pri[b.kind]??3)).forEach(o=>add(o,maxAx-2));
     sets.filter(o=>o.kind.startsWith('cantilever')).forEach(o=>add(o,maxAx));
@@ -258,13 +265,13 @@ function* layoutGen(W){
       const fp=Ml.zones.filter(z=>z.type==='footprint'&&Ml.zAct(z,s)); if(!cols.length) continue;
       const cores=Ml.zones.filter(z=>z.type==='core'&&Ml.zAct(z,s));
       for (const z of fp){ const xs=cols.map(p=>p.x).concat(cores.flatMap(c=>[c.x1,c.x2])), ys=cols.map(p=>p.y).concat(cores.flatMap(c=>[c.y1,c.y2])); const c=Math.max(Math.min(...xs)-z.x1,z.x2-Math.max(...xs),Math.min(...ys)-z.y1,z.y2-Math.max(...ys)); if(c>Math.max(num(st.cantGrid)??2.5,0.3)+1e-6) return null; } }
-    if (Object.values(Ml.levelInfo).some(li=>li.unresolved&&li.unresolved.length)) return null;
+    const plateOnly=Object.values(Ml.levelInfo).some(li=>li.unresolved&&li.unresolved.length);
     const spans=Ml.members.map(m=>m.span); const mx=spans.length?Math.max(...spans):0; if(mx>30) return null;
     const nCol=Ml.pts.filter(p=>Ml.col.some(row=>row[p.id]==='col'||row[p.id]==='edge')).length;
     // uniform column spacing is preferred: penalise (longest - shortest bay) / mean bay on every grid used
     const unif=pos=>{ const b=bays(pos); const m=b.reduce((a,c)=>a+c,0)/b.length; return b.length>1?(Math.max(...b)-Math.min(...b))/m:0; };
     const gs=lay.bands?lay.bands.flatMap(b=>[b.g.x,b.g.y]):lay.sg?[lay.sg.x,lay.sg.y]:[]; const u=gs.reduce((a,g)=>a+unif(g.pos),0);
-    return {score:u*10+mx*0.2+Ml.members.length*0.05+nCol*0.02,u,mx,nMem:Ml.members.length,nCol}; };
+    return {score:u*10+mx*0.2+Ml.members.length*0.05+nCol*0.02+(plateOnly?3:0),u,mx,nMem:Ml.members.length,nCol,plateOnly}; };
   const all=ns?[...Array(ns).keys()]:[];
   const X=axisC('x',all), Y=axisC('y',all);
   const needT=M.col.some(row=>row.some(v=>v==='nosupport'));
@@ -288,6 +295,8 @@ function* layoutGen(W){
   const splits=new Set(); M.zones.filter(z=>z.type==='void'||z.type==='colfree').forEach(z=>{ if(z.s2+1<ns&&z.s2+1>gIdx) splits.add(z.s2+1); });
   C.lv.forEach((l,i)=>{ if(l.free&&i+1<ns&&i+1>=gIdx) splits.add(i+1); });   // plant / refuge floor (incl. basement plant just below ground)
   if (gIdx>0) splits.add(gIdx);                                              // low-zone transfer at ground (e.g. car park grid below)
+  for (let s=1;s<ns;s++) if (C.typeOf[s]!==C.typeOf[s-1]&&s>=gIdx) splits.add(s);  // floor type changes (e.g. podium → guest floors)
+  M.zones.filter(z=>z.type==='colfree'&&z.s1>0&&z.s1>=gIdx).forEach(z=>splits.add(z.s1)); // a zone starting above (e.g. rooms from 3/F)
   const bandC=[]; let bd=0; const sub=(a,b)=>a.every(v=>b.some(w=>Math.abs(v-w)<TOL));
   const okSplits=[...splits].filter(u=>u>=1&&ns-u>=2).sort((a,b)=>a-b);
   const nBand=okSplits.length*16*16;
@@ -298,7 +307,7 @@ function* layoutGen(W){
       const lay={band:{u,lower:{x:lx,y:ly},upper:{x:ux,y:uy}},bands:[{from:0,g:{x:lx,y:ly}},{from:u,g:{x:ux,y:uy}}],tmode:'stop',nx:lx.pos.length-1,ny:ly.pos.length-1,gx:lx,gy:ly,ux,uy,gkey:JSON.stringify([lx.pos,ly.pos,u,ux.pos,uy.pos])};
       const sc=screen(lay); bd++; if(bd%16===0) yield {phase:'Screening two-band layouts',i:bd,n:nBand};
       if (sc) bandC.push({...lay,scr:sc}); } }
-  const bf=new Map(); bandC.sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ const k=`${c.band.u}|${c.nx}x${c.ny}|${c.ux.pos.length}x${c.uy.pos.length}`; if(!bf.has(k)) bf.set(k,c); });
+  const bf=new Map(); bandC.sort((a,b)=>a.scr.score-b.scr.score).forEach(c=>{ const k=`${c.band.u}|${c.nx}x${c.ny}|${c.ux.pos.length}x${c.uy.pos.length}|${c.scr.plateOnly?1:0}`; if(!bf.has(k)) bf.set(k,c); });
   // keep a fair share for each transfer level
   const byU=new Map(); [...bf.values()].forEach(c=>{ if(!byU.has(c.band.u)) byU.set(c.band.u,[]); byU.get(c.band.u).push(c); });
   const per=Math.max(3,Math.round(maxL/2/Math.max(1,byU.size))); byU.forEach(list=>list.slice(0,per).forEach(c=>pick.push(c)));
@@ -431,8 +440,11 @@ function assess(W,sc,C,M){
     const carried=m.carries?m.nodes.length:0;
     const P=carried?q*100*Math.max(1,(nL-1-m.k))*st.tf:0;   // carried column: 10x10 bay per floor above
     const Vrc=wU*Ls/2+P/2;
-    const rc=()=>{ const D=roundUp(Ls/ratioMain,step); const B=roundUp(Math.max(D/2,Vrc/(0.8*Math.sqrt(st.fcuB)*1000*(D-0.07))),step);
-      return {sys:'RC',D,B,need:D,have:m.avail,txt:`RC ${m.carries?'TRANSFER ':''}GIRDER ${f0(D*1000)} x ${f0(B*1000)}`,calc:`S/D = ${f0(Ls*1000)} / D ≤ ${f1(ratioMain)} → D ≥ ${f0(Ls/ratioMain*1000)} → ${f0(D*1000)}`}; };
+    // depth from S/D; if shear needs a beam wider than 2D (min. 1 m), deepen within the zone first; still too wide → not feasible
+    const rc=()=>{ const vmax=0.8*Math.sqrt(st.fcuB)*1000, Breq=d=>Vrc/(vmax*(d-0.07)), Bmax=d=>Math.max(1.0,2*d);
+      let D=roundUp(Ls/ratioMain,step); while(Breq(D)>Bmax(D)+1e-9&&D+step<=m.avail+1e-9) D=+(D+step).toFixed(3);
+      const Bn=Breq(D), over=Bn>Bmax(D)+1e-9?Bn/Bmax(D):0, B=over?roundUp(Bmax(D),step):roundUp(Math.max(D/2,Bn),step);
+      return {sys:'RC',D,B,need:over?Math.max(D,m.avail)*over:D,have:m.avail,txt:`RC ${m.carries?'TRANSFER ':''}GIRDER ${f0(D*1000)} x ${f0(B*1000)}`,calc:`S/D = ${f0(Ls*1000)} / D ≤ ${f1(ratioMain)} → D ≥ ${f0(Ls/ratioMain*1000)}; V = ${f0(Vrc)} kN → b ≥ ${f0(Bn*1000)}${over?` > 2D — too wide even at ${f0(D*1000)} deep`:''} → ${f0(D*1000)} x ${f0(B*1000)}`}; };
     sc.sys.forEach(sy=>{
       if (sy==='RC') opts.push(rc());
       if (sy==='PT'){ const D=roundUp(Ls/st.sdPT,step); opts.push({sys:'PT',D,B:roundUp(Math.max(D,0.5),step),need:D,have:m.avail,txt:`PT GIRDER ${f0(D*1000)} x ${f0(roundUp(Math.max(D,0.5),step)*1000)}`,calc:`S/D ≤ ${st.sdPT} (PT, not template) → D ≥ ${f0(Ls/st.sdPT*1000)}`}); }
@@ -584,6 +596,10 @@ function assess(W,sc,C,M){
   // straight column lines: all columns on a line take the largest offset needed on that line (same direction)
   [['x','dx'],['y','dy']].forEach(([ax,d])=>{ const lines=new Map(); Object.values(offsets).forEach(o=>{ if(!o[d]||o.clash) return; const k=Math.round((ax==='x'?o.p.x:o.p.y)*20); const l=lines.get(k)||{v:0,mixed:false}; if(l.v&&Math.sign(l.v)!==Math.sign(o[d])) l.mixed=true; if(Math.abs(o[d])>Math.abs(l.v)) l.v=o[d]; lines.set(k,l); });
     lines.forEach((l,k)=>{ if(l.mixed) return; pts.forEach(p=>{ if(Math.round((ax==='x'?p.x:p.y)*20)!==k) return; if(!colSize[p.id].some(Boolean)) return; const o=offsets[p.id]||(offsets[p.id]={dx:0,dy:0,p,z:null,side:0}); if(o.clash) return; o[d]=l.v; why(o,'straight column line'); }); }); });
+  M.zones.filter(z=>z.periph&&z.parts&&(z.parts.x||z.parts.y)).forEach(z=>{ const bad=new Set();
+    pts.forEach(p=>{ for(let s=z.s1;s<=z.s2;s++){ if(!present(s,p)) continue; if(p.x<z.x1-TOL||p.x>z.x2+TOL||p.y<z.y1-TOL||p.y>z.y2+TOL) continue;
+      const okx=!z.parts.x||z.parts.x.some(v=>Math.abs(v-p.x)<TOL), oky=!z.parts.y||z.parts.y.some(v=>Math.abs(v-p.y)<TOL); if(!okx||!oky){ bad.add(p.label); break; } } });
+    if (bad.size) add({cat:'Column clash',where:z.name,item:`${bad.size} COLUMN(S) NOT ON A ROOM PARTITION (${[...bad].slice(0,4).join(', ')}${bad.size>4?' …':''})`,calc:`columns are only permitted along the periphery of the rooms (partition / external walls)`,need:2,have:1,ratio:2,strict:true,fix:''}); });
   if (onGrid.size) add({cat:'Column offset',where:[...onGrid].join(', '),item:'COLUMNS KEPT ON GRID AT RESTRICTED-ZONE EDGE',calc:'half the column projects into the zone — set the void / column-free edge at the column face',need:0,have:1,ratio:0,fix:''});
   Object.values(offsets).forEach(o=>{ if(o.clash) add({cat:'Column clash',where:o.p.label,item:`COLUMN ${o.p.label} INSIDE ${o.z.name}`,calc:'column face enters restricted zone',need:2,have:1,ratio:2,strict:true,fix:'Move grid / remove column',pt:o.p.id});
     else if (o.dx||o.dy){ const w=o.why||[]; const edges=w.filter(t=>t.startsWith('building edge')); const short=[...w.filter(t=>!t.startsWith('building edge')),...(edges.length?(()=>{ const fl=edges.map(t=>t.slice(15,-1)).filter((v,i,a)=>a.indexOf(v)===i); return ['building edge ('+(fl.length>2?fl[0]+' ~ '+fl.at(-1):fl.join(', '))+')']; })():[])];
@@ -890,6 +906,7 @@ function renderSteps(){
         {k:'sp',l:'Min. spacing (m)',kinds:['spacing'],w:'45px'},{k:'spt',l:'measured',t:'sel',o:[['c','c/c'],['e','clear']],kinds:['spacing']},
         {k:'dir',l:'Rises',t:'sel',o:[['+X','+X'],['-X','−X'],['+Y','+Y'],['-Y','−Y']],kinds:['ramp']},{k:'grad',l:'Max 1:',kinds:['ramp'],w:'35px',ph:String(W.set.maxGrad||6)},
         {k:'rcol',l:'Columns',t:'sel',o:[['yes','pass through ramp'],['no','not in ramp (stop below)'],['plate','land on thickened ramp (inclined transfer plate)']],kinds:['ramp']},
+        {k:'px',l:'Partitions along X (spacings)',kinds:['periph'],w:'150px',ph:'e.g. 3.75,3.75,3.5,...'},{k:'py',l:'along Y',kinds:['periph'],w:'90px'},
         {k:'n',l:'Count',kinds:['wall'],w:'35px'},{k:'dx',l:'dx',kinds:['wall'],w:'35px'},{k:'dy',l:'dy',kinds:['wall'],w:'35px'}]}],$('#cons'),re);
   }
   if (s===5){
