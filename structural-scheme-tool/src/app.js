@@ -648,7 +648,7 @@ function planSVG2(E,k,grp){
   const X=x=>pad+(x-x0)*S, Y=y=>pad+(y-y0)*S; let g='', ngTxt='';
   const clashPts=new Set(R.checks.filter(c=>c.cat==='Column clash'&&c.pt).map(c=>c.pt));
   const id='h'+Math.random().toString(36).slice(2,7);
-  g+=`<defs><pattern id="${id}" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#d62828" stroke-width="1.2"/></pattern></defs>`;
+  g+=`<defs><pattern id="${id}" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#d62828" stroke-width="1.2"/></pattern><pattern id="q${id}" width="9" height="9" patternUnits="userSpaceOnUse"><path d="M0 0L9 9M9 0L0 9" stroke="#2e7d32" stroke-width=".8"/></pattern></defs>`;
   M.cells.forEach(c=>{ if(M.slabAt(k,c.cx,c.cy)) g+=`<rect x="${X(c.x1)}" y="${Y(c.y1)}" width="${(c.x2-c.x1)*S}" height="${(c.y2-c.y1)*S}" fill="#f7f8fa"/>`; });
   // restricted zones in red hatch
   (R.ramps||[]).forEach(rp=>{ const z=rp.z; if(k<z.s1||k>z.s2) return; const d=z.ramp.dir, cx=X((z.x1+z.x2)/2), cy=Y((z.y1+z.y2)/2), w=(z.x2-z.x1)*S, hh=(z.y2-z.y1)*S;
@@ -656,7 +656,7 @@ function planSVG2(E,k,grp){
     g+=`<g class="ly-zone"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${w}" height="${hh}" fill="#e8f1ff" stroke="#1f4fd1" stroke-dasharray="6 3"/><line x1="${ax}" y1="${ay}" x2="${bx2}" y2="${by2}" stroke="#1f4fd1" stroke-width="1.6" marker-end="url(#ar${id})"/><text x="${cx}" y="${cy-6}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#1f4fd1" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())} UP 1:${f1(rp.run/rp.rise)} (${esc(M.L[z.s1].name)} → ${esc(M.L[z.s2].name)})</text></g>`; });
   g+=`<defs><marker id="ar${id}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#1f4fd1"/></marker></defs>`;
   let zl=0; M.zones.forEach(z=>{ const a=(k-1>=0&&M.zAct(z,k-1))||(k<=nL-2&&M.zAct(z,k)); if(!a||z.type==='footprint'||z.type==='core'||z.type==='outside'||z.type==='keep'||z.ramp) return;
-    if (z.type==='spacing'){ g+=`<g class="ly-sp"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="none" stroke="#7a3" stroke-width="1.2" stroke-dasharray="10 4"/><text x="${X(z.x1)+4}" y="${Y(z.y1)+12}" font-size="9" fill="#4a7a14">${esc(z.name.toUpperCase())}: MIN. ${z.minSp} m ${z.spType==='e'?'CLEAR':'C/C'}</text></g>`; return; } zl++;
+    if (z.type==='spacing'){ g+=`<g class="ly-req"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#q${id})" fill-opacity=".6" stroke="#2e7d32" stroke-width="1.2" stroke-dasharray="10 4"/><text x="${X(z.x1)+4}" y="${Y(z.y1)+13}" font-size="9.5" font-weight="700" fill="#2e7d32" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())}: MIN. ${z.minSp} m ${z.spType==='e'?'CLEAR':'C/C'}</text></g>`; return; } zl++;
     g+=`<g class="ly-zone"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#${id})" fill-opacity=".55" stroke="#d62828" stroke-width="1.2" stroke-dasharray="5 3"/><text x="${X((z.x1+z.x2)/2)}" y="${Y((z.y1+z.y2)/2)+16+(zl-1)*13}" text-anchor="middle" font-size="10" font-weight="700" fill="#b71c1c" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())}</text></g>`; });
   // grid
   const gr=gridAt(M,Math.max(0,k-1));
@@ -816,7 +816,7 @@ function keyPlan(M,grp){
 
 /* ---------- UI ---------- */
 const $=s=>document.querySelector(s);
-let RES=null, view={scheme:null,step:1,tab:'schemes',hide:new Set(),cmp:null,cmpPlan:0,secOpen:new Set()};
+let RES=null, view={scheme:null,step:1,tab:'schemes',hide:new Set(['req']),cmp:null,cmpPlan:0,secOpen:new Set()};
 function fieldI(label,obj,key,w){ return `<label>${esc(label)}<input data-k="${key}" value="${esc(obj[key]??'')}" style="width:${w||'80px'}"></label>`; }
 function bindFields(root,obj){ root.querySelectorAll('[data-k]').forEach(el=>{ const k=el.dataset.k; const ev=el.type==='checkbox'?'change':'input'; el.addEventListener(ev,()=>{ obj[k]=el.type==='checkbox'?el.checked:el.value; changedW(); }); }); }
 function tableI(rows,cols,host,redraw){
@@ -924,6 +924,7 @@ function planSide(E,grp){
   const sp=R.checks.find(c=>c.cat==='Column spacing'&&c.where===tu.name);
   h+=ly('sp',`<b>Column spacing</b> — ${esc(tu.name||'')} (numbers on plan)`);
   h+=row(sp?sp.v:null, tu.minSp?`required ≥ ${tu.minSp} m ${tu.spType==='e'?'clear':'c/c'}${sp?`; min. provided ${f2(sp.have)} m`:''}`:'no requirement');
+  if (M.zones.some(z=>z.type==='spacing'&&M.zAct(z,Math.min(k,M.nL-2)))) h+=ly('req','<b>Spacing zones</b> (green cross hatch)');
   M.zones.filter(z=>z.type==='spacing'&&M.zAct(z,Math.min(k,M.nL-2))).forEach(z=>{ const c=R.checks.find(x=>x.cat==='Column spacing'&&x.where===z.name); h+=row(c?c.v:null,`${esc(z.name)}: ≥ ${z.minSp} m ${z.spType==='e'?'clear':'c/c'}${c?`; min. ${f2(c.have)} m`:''}`); });
   // structural zone
   const ty=R.typ.find(x=>x.type===t.name); const z=M.depth[k];
@@ -1041,7 +1042,7 @@ function bindOut(){
   h.querySelectorAll('input[data-ly]').forEach(c=>c.onchange=()=>{ const id=c.dataset.ly; if(c.checked) view.hide.delete(id); else view.hide.add(id); applyLayers(); });
   applyLayers();
 }
-function applyLayers(){ const h=$('#out'); ['zone','sp','ct','ng'].forEach(id=>h.classList.toggle('hide-'+id,view.hide.has(id))); h.querySelectorAll('input[data-ly]').forEach(c=>c.checked=!view.hide.has(c.dataset.ly)); }
+function applyLayers(){ const h=$('#out'); ['zone','sp','ct','ng','req'].forEach(id=>h.classList.toggle('hide-'+id,view.hide.has(id))); h.querySelectorAll('input[data-ly]').forEach(c=>c.checked=!view.hide.has(c.dataset.ly)); }
 function schemeHTML(E){
   const {sc,M,R}=E;
   const groups=planGroups(M);
