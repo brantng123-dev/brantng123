@@ -535,14 +535,14 @@ const DEF_SET = {
   tol:15, step:250, minSize:500,
   slabRC:150, slabComp:125, sdSlab:26, sdSec:23, sdMain:26, sdCant:7, cantRC:5, cantSt:7,
   kRC:20, kSt:17.8, ef:1.25, tf:1.5, nRC:27.7, nComp:39.95, fcuB:45, py:355, sdPT:20, plateRatio:6, wallRatio:6, inclMax:0.25,
-  slenderBraced:15, maxGrad:6, colGroups:4, colPrefRC:1000, colPrefSt:750, zoneOffset:1, layouts:1, spRound:0.25, spanRC:12, spanSt:18, maxLayouts:30, maxBay:20, sdFlat:26, vcFlat:0.6
+  slenderBraced:15, maxGrad:6, maxStopFloors:2, colGroups:4, colPrefRC:1000, colPrefSt:750, zoneOffset:1, layouts:1, spRound:0.25, spanRC:12, spanSt:18, maxLayouts:30, maxBay:20, sdFlat:26, vcFlat:0.6
 };
 const SET_LABELS = {
   tol:'"Slightly off" tolerance (%)', step:'Size step (mm)', minSize:'Min. column size (mm)',
   slabRC:'RC slab thickness (mm)', slabComp:'Composite slab thickness (mm)', sdSlab:'Slab S/D limit', sdSec:'Secondary beam S/D (×10/L if L>10)', sdMain:'Main / transfer beam S/D (×10/L if L>10)', sdCant:'Cantilever S/D limit',
   cantRC:'RC cantilever max. span (m)', cantSt:'Steel cantilever max. span (m)',
   kRC:'RC load per floor (kPa)', kSt:'Steel WULS per floor (kPa)', ef:'Elastic factor (columns)', tf:'Transfer factor', nRC:'RC column N/Ac (fcu60, 2%)', nComp:'Composite column N/Ac', fcuB:'Beam fcu (MPa)', py:'Steel py (MPa)',
-  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', maxGrad:'Ramp: max. gradient 1 : n (default n)', layouts:'Generate column layouts (1 = yes, 0 = only the architectural grid)', spanRC:'RC: max. column spacing on the typical grid (m)', spanSt:'Steel: max. column spacing on the typical grid (m)', spRound:'Round column spacing to (m, 0 = exact division)', maxLayouts:'Max. column layouts fully checked', maxBay:'Max. column spacing tried (m)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 4 = two sizes (preferred size + one larger), 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column', colPrefRC:'RC preferred column size (mm)', colPrefSt:'Steel (encased) preferred column size (mm)'
+  sdPT:'PT girder S/D (not in template)', plateRatio:'Transfer plate span/thickness', wallRatio:'Storey-deep wall span/height limit', inclMax:'Inclined column max. offset/height', slenderBraced:'Column slenderness limit (braced)', maxGrad:'Ramp: max. gradient 1 : n (default n)', maxStopFloors:'Max. floors on long-span beams above a restricted zone (else transfer)', layouts:'Generate column layouts (1 = yes, 0 = only the architectural grid)', spanRC:'RC: max. column spacing on the typical grid (m)', spanSt:'Steel: max. column spacing on the typical grid (m)', spRound:'Round column spacing to (m, 0 = exact division)', maxLayouts:'Max. column layouts fully checked', maxBay:'Max. column spacing tried (m)', sdFlat:'Flat slab span / eff. depth (with drops)', vcFlat:'Flat slab vc for punching (MPa)', zoneOffset:'Columns at restricted-zone edge: 1 = offset outside (face on zone edge), 0 = keep on grid', colGroups:'Column types: 4 = two sizes (preferred size + one larger), 1 = uniform, 2 = interior / edge, 3 = + transfer support, 0 = each column', colPrefRC:'RC preferred column size (mm)', colPrefSt:'Steel (encased) preferred column size (mm)'
 };
 const KINDS = [
   ['core','Core wall (rigid support)'],
@@ -1122,6 +1122,10 @@ function assess(W,sc,C,M){
         const cc=(ax==='x'?b.x-a.x:b.y-a.y)+ob-oa; const wa=colSize[a.id][s]?.side||0, wb=colSize[b.id][s]?.side||0; const val=rq.e?cc-wa/2-wb/2:cc;
         const w=worstBy.get(rq.where); if(!w||rq.v/val>w.ratio) worstBy.set(rq.where,{ratio:rq.v/val,val,a,b,s,rq}); } }); });
     worstBy.forEach(w=>add({cat:'Column spacing',where:w.rq.where,item:`MIN. ${w.rq.e?'CLEAR':'C/C'} SPACING ${f2(w.val)} m (${w.a.label}–${w.b.label})`,calc:`required ≥ ${w.rq.v} m ${w.rq.e?'clear':'c/c'}${w.rq.ti===null?' (spacing zone)':''}`,need:w.rq.v,have:w.val,ratio:w.ratio,strict:true,fix:'',ti:w.rq.ti,minSp:w.rq.v})); }
+  /* --- columns dropped only because the floor below is a restricted zone: fine for a roof or one plant floor, not for a tower --- */
+  { let worst=null; pts.forEach(p=>{ let run=0, s0=null; for(let s=0;s<nL-1;s++){ if(M.col[s][p.id]==='nosupport'){ if(!run) s0=s; run++; if(!worst||run>worst.run) worst={run,p,s0,s}; } else run=0; } });
+    const lim=num(st.maxStopFloors)||2;
+    if (worst&&worst.run>lim) add({cat:'Transfer',where:`${worst.p.label} ${L[worst.s0].name} ~ ${L[worst.s].name}`,item:`${worst.run} FLOORS WITHOUT COLUMNS ABOVE A RESTRICTED ZONE`,calc:`columns allowed on these floors were dropped only because the zone below has none — more than ${lim} floors on long-span beams; use a transfer level instead`,need:worst.run,have:lim,ratio:worst.run/lim,strict:true,fix:''}); }
   /* --- practical column spacing per material: a longer bay is accepted only where a restricted zone / core forces it --- */
   { const lim=sc.mat==='rc'?num(st.spanRC)||12:num(st.spanSt)||18; let worstB=null;
     M.grids.filter(g=>g.cols).forEach(g=>{ for(let i=0;i<g.gx.pos.length-1;i++) for(let j=0;j<g.gy.pos.length-1;j++){
