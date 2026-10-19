@@ -161,7 +161,7 @@ function buildModel(S){
     const nm=z.name||ZONE_NAME[z.type]||'Zone';
     if ([x1,x2,y1,y2].some(v=>v===null)){err.push(`Zone "${nm}": grid position not recognised (e.g. 3, B, 3+5, T:T2, @12.5)`);return;}
     const r=range(z.s1,z.s2,`Zone "${nm}"`); if(!r) return;
-    zones.push({src:zi,type:z.type,name:nm,x1:Math.min(x1,x2),x2:Math.max(x1,x2),y1:Math.min(y1,y2),y2:Math.max(y1,y2),s1:r[0],s2:r[1],head:num(z.head),svc:num(z.svc),ramp:z.ramp||null,minSp:z.minSp??null,spType:z.spType||'c'});
+    zones.push({src:zi,type:z.type,name:nm,x1:Math.min(x1,x2),x2:Math.max(x1,x2),y1:Math.min(y1,y2),y2:Math.max(y1,y2),s1:r[0],s2:r[1],head:num(z.head),svc:num(z.svc),ramp:z.ramp||null,minSp:z.minSp??null,spType:z.spType||'c',periph:!!z.periph});
   });
   // Walls
   const walls=[];
@@ -307,6 +307,8 @@ function buildModel(S){
         [[sx,'X',t.y,t.x],[sy,'Y',t.x,t.y]].forEach(([sd,dir,cc,v])=>{ const s=sd.a!==null?sd.a:sd.b; if(s!==null&&Math.abs(v-s)<=P.cantMax+EPS) c.push([dir,cc,Math.min(s,v),Math.max(s,v),true]); });
         c.sort((p,q)=>(p[3]-p[2])-(q[3]-q[2])); if(c.length) out.push(c[0]);
       }
+      // a missing column that carries nothing only needs one beam: keep the shorter direction
+      if (!t.carries&&out.length===2&&!out[0][4]&&!out[1][4]){ const sp=o=>o[3]-o[2]; out.splice(sp(out[0])<=sp(out[1])?1:0,1); }
       out.forEach(([dir,c,a,b,cant])=>{ const m=mkMember(k,dir,c,a,b,t,cant,secondary); if(!t.ms.includes(m.id)) t.ms.push(m.id); });
       return out.length>0;
     };
@@ -545,6 +547,7 @@ const SET_LABELS = {
 const KINDS = [
   ['core','Core wall (rigid support)'],
   ['colfree','Column-free zone'],
+  ['periph','No internal column — columns only on the periphery (e.g. guest rooms + corridor)'],
   ['nocol','No column / protection zone (e.g. MTR)'],
   ['void','Atrium / void (no slab, no column)'],
   ['dbl','Double height (no slab, columns kept)'],
@@ -685,6 +688,7 @@ function compile(W, wx, wy, lay){
     const [x1,x2]=rng2(c.x,bx.lo,bx.hi), [y1,y2]=rng2(c.y,by.lo,by.hi);
     runs(ids).forEach(([a,b])=>{
       if (c.kind==='wall') walls.push({name:c.name||'Wall',x1,y1,x2,y2,s1:names[a],s2:names[b],n:num(c.n)||1,dx:num(c.dx)||0,dy:num(c.dy)||0});
+      else if (c.kind==='periph') zones.push({type:'colfree',name:c.name||'Rooms',x1,x2,y1,y2,s1:names[a],s2:names[b],head:'',svc:'',periph:true});
       else if (c.kind==='spacing') zones.push({type:'spacing',name:c.name||'Spacing zone',x1,x2,y1,y2,s1:names[a],s2:names[b],head:'',svc:'',minSp:num(c.sp),spType:c.spt||'c'});
       else if (c.kind==='ramp'){ if(a===b){ err.push(`Ramp "${c.name||ci+1}": give the floors as low~top (e.g. B1/F~G/F)`); return; }
         zones.push({type:'dbl',name:c.name||'Ramp',x1,x2,y1,y2,s1:names[a],s2:names[b],head:'',svc:'',ramp:{dir:c.dir||'+X',grad:num(c.grad)||null,tr:c.rcol==='plate'}});
@@ -776,7 +780,8 @@ function* layoutGen(W){
       { const lines=new Map(); cols.forEach(p=>{ [['x',p.y,p.x],['y',p.x,p.y]].forEach(([a,k,v])=>{ const key=a+Math.round(k*20); if(!lines.has(key)) lines.set(key,{a,k,vs:[]}); lines.get(key).vs.push(v); }); });
         for (const ln of lines.values()){ const arr=ln.vs.sort((a,b)=>a-b); for(let i=0;i<arr.length-1;i++){ const m=(arr[i]+arr[i+1])/2; const rq=spReqAt(Ml,Cl,s,ln.a==='x'?m:ln.k,ln.a==='x'?ln.k:m); if(!rq) continue; const d=arr[i+1]-arr[i]-(rq.e?0.75:0); worstSp=Math.min(worstSp,d/rq.v); if(d<rq.v-1e-6) return null; } } }
       const fp=Ml.zones.filter(z=>z.type==='footprint'&&Ml.zAct(z,s)); if(!cols.length) continue;
-      for (const z of fp){ const xs=cols.map(p=>p.x), ys=cols.map(p=>p.y); const c=Math.max(Math.min(...xs)-z.x1,z.x2-Math.max(...xs),Math.min(...ys)-z.y1,z.y2-Math.max(...ys)); if(c>7+1e-6) return null; } }
+      const cores=Ml.zones.filter(z=>z.type==='core'&&Ml.zAct(z,s));
+      for (const z of fp){ const xs=cols.map(p=>p.x).concat(cores.flatMap(c=>[c.x1,c.x2])), ys=cols.map(p=>p.y).concat(cores.flatMap(c=>[c.y1,c.y2])); const c=Math.max(Math.min(...xs)-z.x1,z.x2-Math.max(...xs),Math.min(...ys)-z.y1,z.y2-Math.max(...ys)); if(c>7+1e-6) return null; } }
     if (Object.values(Ml.levelInfo).some(li=>li.unresolved&&li.unresolved.length)) return null;
     const spans=Ml.members.map(m=>m.span); const mx=spans.length?Math.max(...spans):0; if(mx>30) return null;
     const nCol=Ml.pts.filter(p=>Ml.col.some(row=>row[p.id]==='col'||row[p.id]==='edge')).length;
@@ -884,6 +889,10 @@ function* evalGen(W){
       if (hit) es.forEach(e=>{ e.R.meaningless=`Not needed: a ${mat==='rc'?'RC':'steel'} scheme also works with ${hit.what}, with long-span members on about as many floors.`; });
       else es.forEach(e=>{ const a=alts.map(x=>({x,r:viableAlt(x.lay,mat)})).find(y=>y.r.ok); e.R.benefit=a?`Without it (${a.x.what}) long-span members are needed on ${a.r.ls} floors; with it on ${own}.`:'Without it no scheme of this material works.'; }); }
     n2++; yield {phase:'Checking that transfers / grid changes are needed',i:n2,n:todo.length}; }
+  // special systems (hanger, inclined column, transfer plate) must be needed: if a plain scheme of the same material works on the same layout, hide it
+  out.forEach(e=>{ if(!feasibleE(e)) return; const sp=['HANG','INCL','PLATE','RPLATE'].filter(u=>e.R.used.has(u)); if(!sp.length) return;
+    const plain=out.find(o=>o.lay===e.lay&&o.sc.mat===e.sc.mat&&o!==e&&!['HANG','INCL','PLATE','RPLATE'].some(u=>o.R.used.has(u))&&o.R.applicable&&o.R.worst!=='fail');
+    if (plain) e.R.meaningless=`Not needed: ${plain.sc.id} works on the same layout without the ${sp.map(u=>({HANG:'hanger',INCL:'inclined column',PLATE:'transfer plate',RPLATE:'inclined plate'}[u])).join(' / ')}.`; });
   return {list:out,lays};
 }
 function evaluate(W){ const g=evalGen(W); let x; while(!(x=g.next()).done); return x.value; }
@@ -1083,7 +1092,7 @@ function assess(W,sc,C,M){
     pts.forEach(p=>{ for(let s=z.s1;s<=z.s2;s++){ const c=colSize[p.id][s]; if(!c||!present(s,p)) continue; const h=c.side/2;
       const ovX=Math.min(p.x+h,z.x2)-Math.max(p.x-h,z.x1), ovY=Math.min(p.y+h,z.y2)-Math.max(p.y-h,z.y1);
       if (ovX>1e-6&&ovY>1e-6){ const onEdge=[p.x-z.x1,p.x-z.x2,p.y-z.y1,p.y-z.y2].some(v=>Math.abs(v)<TOL);
-        if (keepOnGrid&&onEdge){ onGrid.add(p.label+' ('+z.name+')'); continue; }
+        if ((keepOnGrid||z.periph)&&onEdge){ if(!z.periph) onGrid.add(p.label+' ('+z.name+')'); continue; }
         const o=offsets[p.id]||{dx:0,dy:0,p,z,side:c.side};
         if (Math.abs(p.x-z.x1)<TOL) o.dx=Math.min(o.dx,-h); else if (Math.abs(p.x-z.x2)<TOL) o.dx=Math.max(o.dx,h);
         if (Math.abs(p.y-z.y1)<TOL) o.dy=Math.min(o.dy,-h); else if (Math.abs(p.y-z.y2)<TOL) o.dy=Math.max(o.dy,h);
@@ -1139,7 +1148,7 @@ function assess(W,sc,C,M){
   (W.types||[]).forEach((t,ti)=>{ const ss=[]; C.typeOf.forEach((x,s)=>{ if(x===ti) ss.push(s); }); if(!ss.length) return;
     const fp=M.zones.find(z=>z.type==='footprint'&&z.name===t.name); if(!fp) return;
     const s=ss[0]; const cols=pts.filter(p=>present(s,p)); if(!cols.length) return;
-    const xs=cols.map(p=>p.x), ys=cols.map(p=>p.y); const zone=Math.min(...ss.map(s=>zoneAt(s+1)));
+    const cores=M.zones.filter(z=>z.type==='core'&&M.zAct(z,s)); const xs=cols.map(p=>p.x).concat(cores.flatMap(z=>[z.x1,z.x2])), ys=cols.map(p=>p.y).concat(cores.flatMap(z=>[z.y1,z.y2])); const zone=Math.min(...ss.map(s=>zoneAt(s+1)));
     [['W',Math.min(...xs)-fp.x1],['E',fp.x2-Math.max(...xs)],['N',Math.min(...ys)-fp.y1],['S',fp.y2-Math.max(...ys)]].forEach(([side,len])=>{
       if (len<0.3) return; const lim=sc.mat==='rc'?st.cantRC:st.cantSt; const D=roundUp(len/st.sdCant,step);
       cants.push({type:t.name,side,len,D});
@@ -1185,7 +1194,7 @@ function planSVG2(E,k,grp){
   g+=`<defs><marker id="ar${id}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#1f4fd1"/></marker></defs>`;
   let zl=0; M.zones.forEach(z=>{ const a=(k-1>=0&&M.zAct(z,k-1))||(k<=nL-2&&M.zAct(z,k)); if(!a||z.type==='footprint'||z.type==='core'||z.type==='outside'||z.type==='keep'||z.ramp) return;
     if (z.type==='spacing'){ g+=`<g class="ly-req"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#q${id})" fill-opacity=".6" stroke="#2e7d32" stroke-width="1.2" stroke-dasharray="10 4"/><text x="${X(z.x1)+4}" y="${Y(z.y1)+13}" font-size="9.5" font-weight="700" fill="#2e7d32" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())}: MIN. ${z.minSp} m ${z.spType==='e'?'CLEAR':'C/C'}</text></g>`; return; } zl++;
-    g+=`<g class="ly-zone"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#${id})" fill-opacity=".55" stroke="#d62828" stroke-width="1.2" stroke-dasharray="5 3"/><text x="${X((z.x1+z.x2)/2)}" y="${Y((z.y1+z.y2)/2)+16+(zl-1)*13}" text-anchor="middle" font-size="10" font-weight="700" fill="#b71c1c" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())}</text></g>`; });
+    g+=`<g class="ly-zone"><rect x="${X(z.x1)}" y="${Y(z.y1)}" width="${(z.x2-z.x1)*S}" height="${(z.y2-z.y1)*S}" fill="url(#${id})" fill-opacity=".55" stroke="#d62828" stroke-width="1.2" stroke-dasharray="5 3"/><text x="${X((z.x1+z.x2)/2)}" y="${Y((z.y1+z.y2)/2)+16+(zl-1)*13}" text-anchor="middle" font-size="10" font-weight="700" fill="#b71c1c" stroke="#fff" stroke-width="3" paint-order="stroke">${esc(z.name.toUpperCase())}${z.periph?' — COLUMNS ON PERIPHERY ONLY':''}</text></g>`; });
   // grid
   const gr=gridAt(M,Math.max(0,k-1));
   // grid lines and bubbles: always the question's grid
@@ -1451,7 +1460,7 @@ function planSide(E,grp){
   h+=ly('zone','<b>Restricted zones</b>');
   if (!zs.length) h+=row(null,'none on this floor');
   zs.forEach(z=>{ const clash=R.checks.some(c=>c.cat==='Column clash'&&c.v==='fail'&&c.item.includes(z.name)); const nOff=Object.values(R.offsets).filter(o=>(o.why||[]).some(w=>w.includes(z.name))).length;
-    h+=row(clash?'fail':'pass',`${esc(z.name)}: no column inside${nOff?` (${nOff} offset)`:''}`); });
+    h+=row(clash?'fail':'pass',`${esc(z.name)}: ${z.periph?'columns on the periphery only':'no column inside'}${nOff?` (${nOff} offset)`:''}`); });
   // spacing
   const sp=R.checks.find(c=>c.cat==='Column spacing'&&c.where===tu.name);
   h+=ly('sp',`<b>Column spacing</b> — ${esc(tu.name||'')} (numbers on plan)`);

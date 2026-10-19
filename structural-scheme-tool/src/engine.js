@@ -62,7 +62,7 @@ function buildModel(S){
     const nm=z.name||ZONE_NAME[z.type]||'Zone';
     if ([x1,x2,y1,y2].some(v=>v===null)){err.push(`Zone "${nm}": grid position not recognised (e.g. 3, B, 3+5, T:T2, @12.5)`);return;}
     const r=range(z.s1,z.s2,`Zone "${nm}"`); if(!r) return;
-    zones.push({src:zi,type:z.type,name:nm,x1:Math.min(x1,x2),x2:Math.max(x1,x2),y1:Math.min(y1,y2),y2:Math.max(y1,y2),s1:r[0],s2:r[1],head:num(z.head),svc:num(z.svc),ramp:z.ramp||null,minSp:z.minSp??null,spType:z.spType||'c'});
+    zones.push({src:zi,type:z.type,name:nm,x1:Math.min(x1,x2),x2:Math.max(x1,x2),y1:Math.min(y1,y2),y2:Math.max(y1,y2),s1:r[0],s2:r[1],head:num(z.head),svc:num(z.svc),ramp:z.ramp||null,minSp:z.minSp??null,spType:z.spType||'c',periph:!!z.periph});
   });
   // Walls
   const walls=[];
@@ -208,6 +208,8 @@ function buildModel(S){
         [[sx,'X',t.y,t.x],[sy,'Y',t.x,t.y]].forEach(([sd,dir,cc,v])=>{ const s=sd.a!==null?sd.a:sd.b; if(s!==null&&Math.abs(v-s)<=P.cantMax+EPS) c.push([dir,cc,Math.min(s,v),Math.max(s,v),true]); });
         c.sort((p,q)=>(p[3]-p[2])-(q[3]-q[2])); if(c.length) out.push(c[0]);
       }
+      // a missing column that carries nothing only needs one beam: keep the shorter direction
+      if (!t.carries&&out.length===2&&!out[0][4]&&!out[1][4]){ const sp=o=>o[3]-o[2]; out.splice(sp(out[0])<=sp(out[1])?1:0,1); }
       out.forEach(([dir,c,a,b,cant])=>{ const m=mkMember(k,dir,c,a,b,t,cant,secondary); if(!t.ms.includes(m.id)) t.ms.push(m.id); });
       return out.length>0;
     };
